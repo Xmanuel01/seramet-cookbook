@@ -625,3 +625,164 @@ h1 { margin-bottom: 0; font-size: clamp(26px, 7vw, 34px); line-height: 1.06; let
   line-height: 1.45;
   text-align: center;
 }
+
+
+.review-resolver {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--card);
+  display: grid;
+  gap: 10px;
+}
+.review-resolver-title {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+}
+.review-resolver-title > svg { color: var(--primary); }
+.review-resolver-title strong,
+.review-resolver-title span { display: block; }
+.review-resolver-title strong { font-size: 10.5px; }
+.review-resolver-title span {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 8.5px;
+  line-height: 1.4;
+}
+.review-field,
+.review-ingredient-editor label {
+  display: grid;
+  gap: 5px;
+}
+.review-field > span,
+.review-ingredient-editor > strong,
+.review-ingredient-editor label > span {
+  font-size: 8.5px;
+  font-weight: 800;
+}
+.review-field input,
+.review-ingredient-editor input {
+  min-height: 38px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 10px;
+}
+.review-field input:focus,
+.review-ingredient-editor input:focus {
+  outline: 2px solid color-mix(in oklch, var(--primary) 28%, transparent);
+  border-color: var(--primary);
+}
+.review-field small {
+  color: var(--muted-foreground);
+  font-size: 8px;
+}
+.review-ingredient-editor {
+  display: grid;
+  gap: 8px;
+}
+.review-ingredient-editor label {
+  grid-template-columns: minmax(120px, .8fr) minmax(150px, 1.2fr);
+  align-items: center;
+}
+.review-approval {
+  padding: 9px;
+  border-radius: 10px;
+  background: var(--warning-soft);
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+}
+.review-approval input {
+  margin-top: 2px;
+  accent-color: var(--primary);
+}
+.review-approval strong,
+.review-approval small { display: block; }
+.review-approval strong { font-size: 9px; }
+.review-approval small {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 8px;
+  line-height: 1.4;
+}
+.review-governed-note {
+  margin-top: 9px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--secondary);
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 7px;
+}
+.review-governed-note > svg { color: var(--primary); }
+.review-governed-note strong,
+.review-governed-note span { display: block; }
+.review-governed-note strong { font-size: 9px; }
+.review-governed-note span {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 8px;
+  line-height: 1.4;
+}
+.single-import-bar {
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid color-mix(in oklch, var(--success) 25%, var(--border));
+  border-radius: 12px;
+  background: var(--success-soft);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.single-import-bar strong,
+.single-import-bar span { display: block; }
+.single-import-bar strong { font-size: 9.5px; color: var(--success); }
+.single-import-bar span {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 8px;
+  line-height: 1.35;
+}
+.import-result-lines {
+  margin-top: 9px;
+  display: grid;
+  gap: 5px;
+}
+.import-result-line {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+  font-size: 8.5px;
+}
+.import-result-line.imported,
+.import-result-line.skipped {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.import-result-line.failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .review-ingredient-editor label,
+  .single-import-bar {
+    grid-template-columns: 1fr;
+  }
+  .single-import-bar button { width: 100%; }
+}
