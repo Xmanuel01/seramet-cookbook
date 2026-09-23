@@ -657,7 +657,7 @@ async function previewImport(context: SerametContext, body: any) {
       .eq("active", 1),
     admin
       .from("unit_definitions")
-      .select("id,code")
+      .select("id,code,dimension")
       .eq("tenant_id", context.tenantId)
       .eq("active", 1),
   ])
@@ -683,6 +683,7 @@ async function previewImport(context: SerametContext, body: any) {
       .map((row) => [normalizeLookup(row.name), row]),
   )
   const configuredUnits = new Set((unitRows || []).map((row) => String(row.code).toUpperCase()))
+  const unitCodeById = new Map((unitRows || []).map((row) => [String(row.id), String(row.code).toUpperCase()]))
 
   const rows = recipes.map((rawRecipe: any, recipeIndex: number) => {
     const name = cleanText(rawRecipe?.name, 200) || `Recipe ${recipeIndex + 1}`
@@ -710,9 +711,42 @@ async function previewImport(context: SerametContext, body: any) {
       if (unitCode && !configuredUnits.has(unitCode)) {
         clientIssues.push(importIssue(
           "UNIT_CREATE_CANDIDATE",
-          `Unit ${unitCode} is not configured in this Seramet tenant yet; it will need mapping or controlled creation before commit.`,
+          `Unit ${unitCode} is not configured in this Seramet tenant yet; it will be created from the controlled cookbook unit registry on commit.`,
           "info",
         ))
+      }
+
+      if (unitCode === "PORTION" || /production recipe/i.test(ingredientName)) {
+        clientIssues.push(importIssue(
+          "PREPARED_COMPONENT_MAPPING_REQUIRED",
+          `Prepared component “${ingredientName}” must be linked to a governed Seramet sub-recipe before this recipe can be imported.`,
+        ))
+      }
+
+      if (inventory && unitCode) {
+        const baseUnitId = inventory.base_unit_id ? String(inventory.base_unit_id) : null
+        const baseCode = baseUnitId ? unitCodeById.get(baseUnitId) : null
+        if (!baseUnitId) {
+          clientIssues.push(importIssue(
+            "INVENTORY_BASE_UNIT_MISSING",
+            `Existing inventory item “${ingredientName}” has no base unit configured in Seramet.`,
+          ))
+        } else if (baseCode && baseCode !== unitCode) {
+          const baseDefinition = importUnitDefinitions[baseCode]
+          const incomingDefinition = importUnitDefinitions[unitCode]
+          const safelyConvertible = Boolean(
+            baseDefinition &&
+            incomingDefinition &&
+            baseDefinition.dimension === incomingDefinition.dimension &&
+            baseDefinition.dimension !== "OTHER"
+          )
+          if (!safelyConvertible) {
+            clientIssues.push(importIssue(
+              "INVENTORY_UNIT_MAPPING_REQUIRED",
+              `Existing inventory item “${ingredientName}” uses ${baseCode}; cookbook quantity uses ${unitCode}. Configure an explicit Seramet conversion before import.`,
+            ))
+          }
+        }
       }
 
       return {
@@ -760,6 +794,69 @@ async function previewImport(context: SerametContext, body: any) {
     }
   })
 
+  function conversionFamily(code: string) {
+    const definition = importUnitDefinitions[code]
+    if (!definition) return `UNKNOWN:${code}`
+    return definition.dimension === "OTHER" ? `OTHER:${code}` : definition.dimension
+  }
+
+  const ingredientUnitUsage = new Map<string, {
+    label: string
+    entries: Array<{ rowIndex: number; code: string }>
+  }>()
+
+  rows.forEach((row: any, rowIndex: number) => {
+    if (row.status !== "ready") return
+    for (const ingredient of row.ingredients || []) {
+      const label = cleanText(ingredient?.name, 200) || "Ingredient"
+      const code = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase()
+      if (!code) continue
+      const key = normalizeLookup(label)
+      const usage = ingredientUnitUsage.get(key) || { label, entries: [] }
+      usage.entries.push({ rowIndex, code })
+      ingredientUnitUsage.set(key, usage)
+    }
+  })
+
+  for (const [ingredientKey, usage] of ingredientUnitUsage.entries()) {
+    if (usage.entries.length <= 1) continue
+
+    const existingInventory: any = inventoryByName.get(ingredientKey) || null
+    const existingBaseCode = existingInventory?.base_unit_id
+      ? unitCodeById.get(String(existingInventory.base_unit_id))
+      : null
+
+    let targetFamily = existingBaseCode ? conversionFamily(existingBaseCode) : ""
+    if (!targetFamily) {
+      const counts = new Map<string, { count: number; firstIndex: number }>()
+      usage.entries.forEach((entry, entryIndex) => {
+        const family = conversionFamily(entry.code)
+        const current = counts.get(family)
+        counts.set(family, {
+          count: (current?.count || 0) + 1,
+          firstIndex: current?.firstIndex ?? entryIndex,
+        })
+      })
+      targetFamily = [...counts.entries()]
+        .sort((a, b) => b[1].count - a[1].count || a[1].firstIndex - b[1].firstIndex)[0]?.[0] || ""
+    }
+
+    for (const entry of usage.entries) {
+      if (conversionFamily(entry.code) === targetFamily) continue
+      const row: any = rows[entry.rowIndex]
+      row.issues.push(importIssue(
+        "CROSS_RECIPE_UNIT_MAPPING_REQUIRED",
+        `Ingredient “${usage.label}” uses ${entry.code}, while this import resolves its Seramet base family to ${targetFamily.replace(/^OTHER:/, "")}. Confirm an explicit conversion before importing this recipe.`,
+      ))
+    }
+  }
+
+  for (const row of rows as any[]) {
+    const hasBlocked = row.issues.some((item: any) => item.severity === "blocked")
+    const hasReview = row.issues.some((item: any) => item.severity === "review")
+    row.status = hasBlocked ? "blocked" : hasReview ? "review" : "ready"
+  }
+
   return {
     fileName,
     fileHash,
@@ -769,6 +866,352 @@ async function previewImport(context: SerametContext, body: any) {
     reviewCount: rows.filter((row: any) => row.status === "review").length,
     blockedCount: rows.filter((row: any) => row.status === "blocked").length,
     rows,
+  }
+}
+
+
+const importUnitDefinitions: Record<string, {
+  name: string
+  symbol: string
+  dimension: "MASS" | "VOLUME" | "COUNT" | "OTHER"
+  baseScaleNumerator: number
+  baseScaleDenominator: number
+}> = {
+  KG: { name: "Kilogram", symbol: "kg", dimension: "MASS", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  G: { name: "Gram", symbol: "g", dimension: "MASS", baseScaleNumerator: 1, baseScaleDenominator: 1000 },
+  L: { name: "Litre", symbol: "L", dimension: "VOLUME", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  ML: { name: "Millilitre", symbol: "ml", dimension: "VOLUME", baseScaleNumerator: 1, baseScaleDenominator: 1000 },
+  PC: { name: "Piece", symbol: "pc", dimension: "COUNT", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  PORTION: { name: "Portion", symbol: "portion", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  TBSP: { name: "Tablespoon", symbol: "tbsp", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  TSP: { name: "Teaspoon", symbol: "tsp", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  CUP: { name: "Cup", symbol: "cup", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  SLICE: { name: "Slice", symbol: "slice", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  SACHET: { name: "Sachet", symbol: "sachet", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  PACKET: { name: "Packet", symbol: "packet", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  BUNCH: { name: "Bunch", symbol: "bunch", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  CONTAINER: { name: "Container", symbol: "container", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  LEAF: { name: "Leaf", symbol: "leaf", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  SHOT: { name: "Shot", symbol: "shot", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  BOTTLE: { name: "Bottle", symbol: "bottle", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  ROLL: { name: "Roll", symbol: "roll", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+}
+
+function safeCode(value: unknown, fallback: string) {
+  const code = String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48)
+  return code || fallback
+}
+
+function microQuantity(value: unknown) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) {
+    throw Object.assign(new Error("Import contains a non-positive numeric quantity."), { status: 409 })
+  }
+  const micro = Math.round(number * 1_000_000)
+  if (!Number.isSafeInteger(micro) || micro <= 0) {
+    throw Object.assign(new Error("Import quantity is outside Seramet limits."), { status: 409 })
+  }
+  return micro
+}
+
+async function commitImport(context: SerametContext, body: any) {
+  requirePermission(context, "cookbook.manage")
+  requirePermission(context, "cookbook.publish")
+  requirePermission(context, "costcontrol.manage")
+
+  const preview = await previewImport(context, body)
+  const requested = Array.isArray(body?.selectedClientIds)
+    ? new Set(body.selectedClientIds.map((id: unknown) => String(id)))
+    : new Set(preview.rows.filter((row: any) => row.status === "ready").map((row: any) => String(row.clientId)))
+
+  const selectedRows = preview.rows.filter((row: any) => requested.has(String(row.clientId)))
+  if (!selectedRows.length) {
+    throw Object.assign(new Error("Select at least one ready recipe to import."), { status: 400 })
+  }
+
+  const unsafe = selectedRows.filter((row: any) => row.status !== "ready")
+  if (unsafe.length) {
+    throw Object.assign(
+      new Error(`${unsafe.length} selected recipe(s) still require review and were not imported.`),
+      { status: 409 },
+    )
+  }
+
+  const [
+    { data: tenant, error: tenantError },
+    { data: unitRows, error: unitError },
+    { data: inventoryRows, error: inventoryError },
+   { data: menuRows, error: menuError },
+    { data: recipeRows, error: recipeError },
+  ] = await Promise.all([
+    admin.from("tenants").select("default_currency").eq("id", context.tenantId).single(),
+    admin.from("unit_definitions").select("id,code,dimension").eq("tenant_id", context.tenantId).eq("active", 1),
+    admin.from("inventory_items").select("id,name,sku,base_unit_id").eq("tenant_id", context.tenantId).eq("active", 1),
+    admin.from("menu_catalog_items").select("id,name,code,recipe_reference").eq("tenant_id", context.tenantId).eq("active", 1),
+    admin.from("recipes").select("id,name,menu_item_id,active").eq("tenant_id", context.tenantId),
+  ])
+
+  if (tenantError) throw tenantError
+  if (unitError) throw unitError
+  if (inventoryError) throw inventoryError
+  if (menuError) throw menuError
+  if (recipeError) throw recipeError
+
+  const unitByCode = new Map((unitRows || []).map((row: any) => [String(row.code).toUpperCase(), String(row.id)]))
+  const unitCodeById = new Map((unitRows || []).map((row: any) => [String(row.id), String(row.code).toUpperCase()]))
+  const inventoryByName = new Map((inventoryRows || []).map((row: any) => [normalizeLookup(row.name), row]))
+  const menuByName = new Map((menuRows || []).map((row: any) => [normalizeLookup(row.name), row]))
+  const recipeByName = new Map((recipeRows || []).filter((row: any) => Number(row.active) === 1).map((row: any) => [normalizeLookup(row.name), row]))
+  const recipeByMenu = new Map((recipeRows || []).map((row: any) => [String(row.menu_item_id), row]))
+  const currency = String(tenant?.default_currency || "KES")
+  const stamp = new Date().toISOString()
+
+  const results: Array<{
+    clientId: string
+    name: string
+    status: "imported" | "skipped" | "failed"
+    recipeId?: string
+    recipeVersionId?: string
+    message?: string
+  }> = []
+
+  for (const row of selectedRows as any[]) {
+    try {
+      const rowUnitByCode = new Map(unitByCode)
+      const rowUnitCodeById = new Map(unitCodeById)
+      const rowInventoryByName = new Map(inventoryByName)
+      const rowMenuByName = new Map(menuByName)
+      const rowRecipeByName = new Map(recipeByName)
+      const rowRecipeByMenu = new Map(recipeByMenu)
+
+      const yieldValue = row?.yield?.value
+      const yieldCode = cleanText(row?.yield?.unitCode, 40)?.toUpperCase()
+      if (!yieldCode || !importUnitDefinitions[yieldCode]) {
+        throw new Error(`Yield unit for ${row.name} is not ready for controlled import.`)
+      }
+
+      const requiredUnitCodes = new Set<string>([yieldCode])
+      for (const ingredient of row.ingredients || []) {
+        const code = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase()
+        if (!code || !importUnitDefinitions[code]) {
+          throw new Error(`Ingredient unit for ${ingredient?.name || row.name} is not ready for controlled import.`)
+        }
+        requiredUnitCodes.add(code)
+      }
+
+      const unitPayload: any[] = []
+      for (const code of requiredUnitCodes) {
+        let id = rowUnitByCode.get(code)
+        if (!id) {
+          id = `unit-cookbook-${crypto.randomUUID()}`
+          const definition = importUnitDefinitions[code]
+          unitPayload.push({ id, code, ...definition, create: true })
+          rowUnitByCode.set(code, id)
+          rowUnitCodeById.set(id, code)
+        } else {
+          const definition = importUnitDefinitions[code]
+          unitPayload.push({ id, code, ...definition, create: false })
+        }
+      }
+
+      const inventoryPayload: any[] = []
+      const components: any[] = []
+
+      for (const ingredient of row.ingredients || []) {
+        const name = cleanText(ingredient?.name, 200)
+        const value = ingredient?.quantity?.value
+        const code = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase()
+        if (!name || !code) throw new Error(`Ingredient structure for ${row.name} is incomplete.`)
+        const unitId = rowUnitByCode.get(code)
+        if (!unitId) throw new Error(`Unit ${code} was not resolved.`)
+
+        let inventory: any = rowInventoryByName.get(normalizeLookup(name)) || null
+        if (inventory) {
+          const baseUnitId = inventory.base_unit_id ? String(inventory.base_unit_id) : null
+          if (!baseUnitId) {
+            throw new Error(`Existing inventory item “${name}” has no base unit configured in Seramet.`)
+          }
+          if (baseUnitId !== unitId) {
+            const baseCode = rowUnitCodeById.get(baseUnitId)
+            const baseDefinition = baseCode ? importUnitDefinitions[baseCode] : undefined
+            const incomingDefinition = importUnitDefinitions[code]
+            const safelyConvertible = Boolean(
+              baseDefinition &&
+              incomingDefinition &&
+              baseDefinition.dimension === incomingDefinition.dimension &&
+              baseDefinition.dimension !== "OTHER"
+            )
+            if (!safelyConvertible) {
+              throw new Error(
+                `Inventory item “${name}” is configured in ${baseCode || "another unit"} and cannot safely accept ${code} without an explicit Seramet conversion.`
+              )
+            }
+          }
+        }
+        if (!inventory) {
+          const token = crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()
+          inventory = {
+            id: `inventory-cookbook-${crypto.randomUUID()}`,
+            sku: `CBI-${token}`,
+            code: `CBI_${token}`,
+            name,
+            base_unit_id: unitId,
+          }
+          rowInventoryByName.set(normalizeLookup(name), inventory)
+          inventoryPayload.push({
+            id: inventory.id,
+            sku: inventory.sku,
+            code: inventory.code,
+            name,
+            description: `Created from reviewed cookbook import (${row.category})`,
+            unitId,
+            unitCode: code,
+            create: true,
+          })
+        }
+
+        components.push({
+          id: `component-cookbook-${crypto.randomUUID()}`,
+          inventoryItemId: String(inventory.id),
+          quantityMicro: microQuantity(value),
+          unitId,
+        })
+      }
+
+      const rowKey = normalizeLookup(row.name)
+      let menu: any = rowMenuByName.get(rowKey) || null
+      let recipe: any = rowRecipeByName.get(rowKey) || null
+
+      if (!recipe && menu) recipe = rowRecipeByMenu.get(String(menu.id)) || null
+
+      const menuCreate = !menu
+      if (!menu) {
+        const token = crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()
+        menu = {
+          id: `menu-cookbook-${crypto.randomUUID()}`,
+          code: `CB-${token}`,
+          name: row.name,
+        }
+        rowMenuByName.set(rowKey, menu)
+      }
+
+      const recipeCreate = !recipe
+      if (!recipe) {
+        recipe = {
+          id: `recipe-cookbook-${crypto.randomUUID()}`,
+          name: row.name,
+          menu_item_id: menu.id,
+          active: 1,
+        }
+        rowRecipeByName.set(rowKey, recipe)
+        rowRecipeByMenu.set(String(menu.id), recipe)
+      }
+
+      const sourceReference = `cookbook:${preview.fileHash}:${rowKey}`
+      const versionId = `recipe-version-cookbook-${crypto.randomUUID()}`
+      const payload = {
+        stamp,
+        sourceReference,
+        fileHash: preview.fileHash,
+        importerVersion: preview.importerVersion,
+        units: unitPayload,
+        inventory: inventoryPayload,
+        menu: {
+          id: String(menu.id),
+          code: String(menu.code || `CB-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
+          name: row.name,
+          categoryCode: safeCode(row.category, "COOKBOOK"),
+          description: Array.isArray(row.meta) ? row.meta.join(" | ").slice(0, 1000) : "",
+          currency,
+          create: menuCreate,
+        },
+        recipe: {
+          id: String(recipe.id),
+          name: row.name,
+          create: recipeCreate,
+        },
+        version: {
+          id: versionId,
+          yieldQuantityMicro: microQuantity(yieldValue),
+          yieldUnitId: rowUnitByCode.get(yieldCode),
+        },
+        components,
+        content: {
+          prepMinutes: 0,
+          cookMinutes: 0,
+          portionLabel: String(row?.yield?.raw || ""),
+          imageUrl: null,
+          chefNotes: Array.isArray(row.kitchenNotes) ? row.kitchenNotes.join("\n").slice(0, 8000) : "",
+          method: Array.isArray(row.method) ? row.method.slice(0, 100) : [],
+          media: [],
+          sourceDocument: preview.fileName,
+          changeSummary: "Imported from reviewed cookbook",
+        },
+      }
+
+      const { data, error } = await admin.rpc("commit_cookbook_recipe_v1", {
+        p_tenant_id: context.tenantId,
+        p_actor_id: context.userId,
+        p_payload: payload,
+      })
+      if (error) throw error
+
+      const committed = data as any
+      if (committed?.status !== "skipped") {
+        for (const unit of unitPayload) {
+          if (unit.create) {
+            unitByCode.set(String(unit.code), String(unit.id))
+            unitCodeById.set(String(unit.id), String(unit.code))
+          }
+        }
+        for (const item of inventoryPayload) {
+          if (item.create) {
+            inventoryByName.set(normalizeLookup(item.name), {
+              id: item.id,
+              name: item.name,
+              sku: item.sku,
+              base_unit_id: item.unitId,
+            })
+          }
+        }
+        if (menuCreate) menuByName.set(rowKey, menu)
+        if (recipeCreate) {
+          recipeByName.set(rowKey, recipe)
+          recipeByMenu.set(String(menu.id), recipe)
+        }
+      }
+      results.push({
+        clientId: String(row.clientId),
+        name: row.name,
+        status: committed?.status === "skipped" ? "skipped" : "imported",
+        recipeId: String(committed?.recipeId || recipe.id),
+        recipeVersionId: committed?.recipeVersionId ? String(committed.recipeVersionId) : undefined,
+        message: committed?.reason ? String(committed.reason) : undefined,
+      })
+    } catch (error) {
+      results.push({
+        clientId: String(row.clientId),
+        name: String(row.name),
+        status: "failed",
+        message: error instanceof Error ? error.message : "Recipe import failed.",
+      })
+    }
+  }
+
+  return {
+    fileName: preview.fileName,
+    fileHash: preview.fileHash,
+    selectedCount: selectedRows.length,
+    importedCount: results.filter((item) => item.status === "imported").length,
+    skippedCount: results.filter((item) => item.status === "skipped").length,
+    failedCount: results.filter((item) => item.status === "failed").length,
+    results,
   }
 }
 
@@ -791,6 +1234,10 @@ Deno.serve(async (req: Request) => {
 
     if (action === "previewImport") {
       return response({ ok: true, data: await previewImport(context, body) })
+    }
+
+    if (action === "commitImport") {
+      return response({ ok: true, data: await commitImport(context, body) })
     }
 
     if (action === "getRecipe") {

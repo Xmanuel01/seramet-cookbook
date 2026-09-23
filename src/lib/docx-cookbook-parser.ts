@@ -58,6 +58,22 @@ const UNIT_ALIASES: Record<string, { code: string; label: string }> = {
   bottles: { code: "BOTTLE", label: "bottle" },
   roll: { code: "ROLL", label: "roll" },
   rolls: { code: "ROLL", label: "roll" },
+  samosa: { code: "PC", label: "pc" },
+  samosas: { code: "PC", label: "pc" },
+  kebab: { code: "PC", label: "pc" },
+  kebabs: { code: "PC", label: "pc" },
+  skewer: { code: "PC", label: "pc" },
+  skewers: { code: "PC", label: "pc" },
+  chapati: { code: "PC", label: "pc" },
+  chapatis: { code: "PC", label: "pc" },
+  side: { code: "PORTION", label: "portion" },
+  sides: { code: "PORTION", label: "portion" },
+  steak: { code: "PORTION", label: "portion" },
+  steaks: { code: "PORTION", label: "portion" },
+  burger: { code: "PORTION", label: "portion" },
+  burgers: { code: "PORTION", label: "portion" },
+  bowl: { code: "PORTION", label: "portion" },
+  bowls: { code: "PORTION", label: "portion" },
 }
 
 const QUALITATIVE = [
@@ -173,6 +189,9 @@ export function parseQuantity(rawValue: string): ParsedQuantity {
   if (/draft|validate|confirm/i.test(notes)) {
     issues.push(issue("SOURCE_REVIEW_NOTE", `Source note “${notes}” requires review.`))
   }
+  if (approximate) {
+    issues.push(issue("APPROXIMATE_QUANTITY", `Approximate quantity “${raw}” requires confirmation before authoritative import.`))
+  }
 
   return {
     raw,
@@ -186,8 +205,10 @@ export function parseQuantity(rawValue: string): ParsedQuantity {
 }
 
 function parseYield(meta: string[]): ParsedQuantity | null {
-  const preferred = meta.find((line) => /recorded yield|menu serving|recorded batch|production batch|draft batch|draft serving/i.test(line))
+  const preferred = meta.find((line) => /recorded yield|menu serving|recorded batch|production batch|draft batch|draft serving|menu assembly/i.test(line))
   if (!preferred) return null
+  const serves = preferred.match(/menu assembly:\s*serves\s*(\d+(?:\.\d+)?)/i)
+  if (serves) return parseQuantity(`${serves[1]} portions`)
   const colon = preferred.indexOf(":")
   let raw = colon >= 0 ? preferred.slice(colon + 1).trim() : preferred
   raw = raw

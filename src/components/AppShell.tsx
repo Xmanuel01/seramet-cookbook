@@ -20,11 +20,13 @@ export function AppShell({
   screen,
   onNavigate,
   onAdd,
+  branchLabel = "Mona Swahili",
   children
 }: {
   screen: Screen
   onNavigate: (screen: PrimaryScreen) => void
   onAdd: () => void
+  branchLabel?: string
   children: ReactNode
 }) {
   const active = activePrimary(screen)
@@ -48,7 +50,7 @@ export function AppShell({
         </nav>
         <div className="sidebar-workspace">
           <span>Workspace</span>
-          <strong>Westlands Branch</strong>
+          <strong>{branchLabel}</strong>
           <small>Kitchen standards</small>
         </div>
       </aside>
@@ -58,7 +60,7 @@ export function AppShell({
           <Brand />
           <div className="branch-pill">
             <span className="branch-dot" />
-            Westlands
+            {branchLabel}
           </div>
         </header>
         {children}

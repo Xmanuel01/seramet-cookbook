@@ -42,6 +42,11 @@ export default function App() {
     [editingId, recipes],
   )
 
+  const categories = useMemo(() => {
+    const source = backendMode === "local" && recipes.length === 0 ? defaultCategories : ["All", ...recipes.map((recipe) => recipe.category)]
+    return [...new Set(source.filter(Boolean))]
+  }, [backendMode, recipes])
+
   useEffect(() => {
     if (!isSupabaseConfigured) {
       const localRecipes = loadLocalRecipes()
@@ -124,7 +129,7 @@ export default function App() {
 
   function startNewRecipe() {
     if (backendMode === "supabase") {
-      setError("Create or link the recipe in Seramet Cost Control first. The cookbook intentionally does not duplicate Seramet recipe identities.")
+      setError("Use Import Cookbook to create reviewed recipes, or create/link the recipe manually in Seramet Cost Control.")
       return
     }
     setEditingId(null)
@@ -171,6 +176,16 @@ export default function App() {
     }
   }
 
+  async function refreshRemoteRecipes() {
+    if (backendMode !== "supabase") return
+    const remoteRecipes = await loadRemoteRecipes()
+    setRecipes(remoteRecipes)
+    setSelectedId((current) => {
+      if (remoteRecipes.some((recipe) => recipe.id === current)) return current
+      return remoteRecipes[0]?.id || ""
+    })
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
   }
@@ -187,8 +202,13 @@ export default function App() {
     )
   }
 
+  const branchLabel =
+    (workspace?.branches?.length || 0) > 1
+      ? "All branches"
+      : workspace?.branches?.[0]?.name || workspace?.name || "Mona Swahili"
+
   return (
-    <AppShell screen={screen} onNavigate={navigate} onAdd={startNewRecipe}>
+    <AppShell screen={screen} onNavigate={navigate} onAdd={startNewRecipe} branchLabel={branchLabel}>
       {error && (
         <div className="global-error">
           <div>
@@ -204,17 +224,26 @@ export default function App() {
       {screen === "recipes" && (
         <RecipesScreen
           recipes={recipes.length > 0 ? recipes : backendMode === "local" ? seedRecipes : []}
-          categories={defaultCategories}
+          categories={categories}
           onOpen={openRecipe}
           onAdd={startNewRecipe}
         />
       )}
 
       {screen === "categories" && (
-        <CategoriesScreen recipes={recipes} categories={defaultCategories} />
+        <CategoriesScreen recipes={recipes} categories={categories} />
       )}
 
-      {screen === "import" && <ImportScreen />}
+      {screen === "import" && (
+        <ImportScreen
+          canImport={Boolean(
+            workspace?.canManage &&
+            workspace?.canPublish &&
+            workspace?.permissions?.includes("costcontrol.manage")
+          )}
+          onImported={refreshRemoteRecipes}
+        />
+      )}
 
       {screen === "more" && (
         <MoreScreen
@@ -236,7 +265,7 @@ export default function App() {
       {screen === "editor" && (
         <div className={saving ? "saving-overlay-wrap" : ""}>
           <RecipeEditorScreen
-            categories={defaultCategories}
+            categories={categories}
             existing={editingRecipe}
             coreLocked={backendMode === "supabase"}
             onCancel={() => setScreen(editingRecipe ? "detail" : "recipes")}

@@ -103,5 +103,24 @@ export type CookbookImportPreview = {
   rows: RecipeImportPreviewRow[]
 }
 
+export type CookbookImportCommitResult = {
+  clientId: string
+  name: string
+  status: "imported" | "skipped" | "failed"
+  recipeId?: string
+  recipeVersionId?: string
+  message?: string
+}
+
+export type CookbookImportCommitReport = {
+  fileName: string
+  fileHash: string
+  selectedCount: number
+  importedCount: number
+  skippedCount: number
+  failedCount: number
+  results: CookbookImportCommitResult[]
+}
+
 export type PrimaryScreen = "recipes" | "categories" | "import" | "more"
 export type Screen = PrimaryScreen | "detail" | "editor"
