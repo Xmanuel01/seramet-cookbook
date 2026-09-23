@@ -1107,6 +1107,112 @@ function microQuantity(value: unknown) {
   return micro
 }
 
+
+async function verifyCommittedRecipe(
+  context: SerametContext,
+  input: { menuItemId: string; recipeId: string; recipeVersionId?: string; sourceReference: string },
+) {
+  const { data: contentRow, error: contentError } = await admin
+    .from("cookbook_recipe_content_versions")
+    .select("recipe_id,recipe_version_id")
+    .eq("tenant_id", context.tenantId)
+    .eq("source_reference", input.sourceReference)
+    .limit(1)
+    .maybeSingle()
+
+  if (contentError) throw contentError
+
+  const recipeId = String(contentRow?.recipe_id || input.recipeId)
+  const versionId = String(contentRow?.recipe_version_id || input.recipeVersionId || "")
+
+  const [
+    { data: menuItem, error: menuError },
+    { data: recipe, error: recipeError },
+    { data: version, error: versionError },
+    { count: componentCount, error: componentError },
+    { data: auditEvent, error: auditError },
+    { data: recalculationEvent, error: recalculationError },
+  ] = await Promise.all([
+    admin
+      .from("menu_catalog_items")
+      .select("id")
+      .eq("tenant_id", context.tenantId)
+      .eq("id", input.menuItemId)
+      .limit(1)
+      .maybeSingle(),
+    admin
+      .from("recipes")
+      .select("id,current_version_id,active")
+      .eq("tenant_id", context.tenantId)
+      .eq("id", recipeId)
+      .limit(1)
+      .maybeSingle(),
+    versionId
+      ? admin
+          .from("recipe_versions")
+          .select("id,active")
+          .eq("tenant_id", context.tenantId)
+          .eq("id", versionId)
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null } as any),
+    versionId
+      ? admin
+          .from("recipe_version_components")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", context.tenantId)
+          .eq("recipe_version_id", versionId)
+      : Promise.resolve({ count: 0, error: null } as any),
+    versionId
+      ? admin
+          .from("audit_events")
+          .select("id")
+          .eq("tenant_id", context.tenantId)
+          .eq("action", "COOKBOOK_RECIPE_IMPORTED")
+          .eq("entity_id", versionId)
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null } as any),
+    admin
+      .from("inventory_recalculation_events")
+      .select("id")
+      .eq("tenant_id", context.tenantId)
+      .eq("event_type", "RECIPE_VERSION_CHANGED")
+      .eq("entity_id", recipeId)
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  if (menuError) throw menuError
+  if (recipeError) throw recipeError
+  if (versionError) throw versionError
+  if (componentError) throw componentError
+  if (auditError) throw auditError
+  if (recalculationError) throw recalculationError
+
+  const verification = {
+    menuItem: Boolean(menuItem),
+    recipe: Boolean(recipe && Number(recipe.active) === 1 && (!versionId || String(recipe.current_version_id) === versionId)),
+    version: Boolean(version && Number(version.active) === 1),
+    componentCount: Number(componentCount || 0),
+    cookbookContent: Boolean(contentRow),
+    auditEvent: Boolean(auditEvent),
+    recalculationEvent: Boolean(recalculationEvent),
+  }
+
+  return {
+    ...verification,
+    verified:
+      verification.menuItem &&
+      verification.recipe &&
+      verification.version &&
+      verification.componentCount > 0 &&
+      verification.cookbookContent &&
+      verification.auditEvent &&
+      verification.recalculationEvent,
+  }
+}
+
 async function commitImport(context: SerametContext, body: any) {
   requirePermission(context, "cookbook.manage")
   requirePermission(context, "cookbook.publish")
@@ -1373,13 +1479,23 @@ async function commitImport(context: SerametContext, body: any) {
           recipeByMenu.set(String(menu.id), recipe)
         }
       }
+      const committedRecipeId = String(committed?.recipeId || recipe.id)
+      const committedVersionId = committed?.recipeVersionId ? String(committed.recipeVersionId) : undefined
+      const verification = await verifyCommittedRecipe(context, {
+        menuItemId: String(menu.id),
+        recipeId: committedRecipeId,
+        recipeVersionId: committedVersionId,
+        sourceReference,
+      })
+
       results.push({
         clientId: String(row.clientId),
         name: row.name,
         status: committed?.status === "skipped" ? "skipped" : "imported",
-        recipeId: String(committed?.recipeId || recipe.id),
-        recipeVersionId: committed?.recipeVersionId ? String(committed.recipeVersionId) : undefined,
+        recipeId: committedRecipeId,
+        recipeVersionId: committedVersionId,
         message: committed?.reason ? String(committed.reason) : undefined,
+        verification,
       })
     } catch (error) {
       results.push({
