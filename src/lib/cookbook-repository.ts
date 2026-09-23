@@ -1,5 +1,10 @@
 import { seedRecipes } from "../data/recipes"
-import type { CookbookWorkspace, Recipe } from "../types"
+import type {
+  CookbookImportPreview,
+  CookbookWorkspace,
+  ParsedRecipeCandidate,
+  Recipe,
+} from "../types"
 import { supabase } from "./supabase"
 
 const LOCAL_RECIPES_KEY = "seramet-cookbook:recipes:v2"
@@ -81,4 +86,13 @@ export async function saveRemoteContent(
       changeSummary: publish ? "Cookbook content published" : "Cookbook content saved as draft",
     },
   })
+}
+
+export async function previewCookbookImport(input: {
+  fileName: string
+  fileHash: string
+  importerVersion: string
+  recipes: ParsedRecipeCandidate[]
+}): Promise<CookbookImportPreview> {
+  return invoke<CookbookImportPreview>("previewImport", input)
 }
