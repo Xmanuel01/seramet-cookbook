@@ -243,7 +243,7 @@ async function authenticate(req: Request): Promise<SerametContext> {
 
 const ROOT_TEST_PASSCODE = "123456"
 const ROOT_TEST_EXPIRES_AT = Date.parse("2026-09-30T20:59:59Z")
-const ROOT_TEST_ALLOWED_ORIGIN = /^https:\/\/seramet-cookbook-[a-z0-9-]+\.vercel\.app$/i
+const ROOT_TEST_ALLOWED_ORIGIN = "https://seramet-cookbook-pkivuhlxi-xmanuel01s-projects.vercel.app"
 
 async function authenticateTestRequest(req: Request): Promise<SerametContext> {
   const passcode = req.headers.get("x-cookbook-test-passcode")?.trim() || ""
@@ -257,7 +257,7 @@ async function authenticateTestRequest(req: Request): Promise<SerametContext> {
   }
 
   const origin = req.headers.get("origin") || ""
-  if (!ROOT_TEST_ALLOWED_ORIGIN.test(origin)) {
+  if (origin !== ROOT_TEST_ALLOWED_ORIGIN) {
     throw Object.assign(new Error("Temporary root access is restricted to the Vercel preview deployment."), { status: 403 })
   }
 
