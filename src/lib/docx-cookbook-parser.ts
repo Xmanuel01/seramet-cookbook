@@ -6,7 +6,7 @@ import type {
   ParsedRecipeCandidate,
 } from "../types"
 
-const IMPORTER_VERSION = "docx-semantic-v1"
+const IMPORTER_VERSION = "docx-semantic-v2"
 
 const UNIT_ALIASES: Record<string, { code: string; label: string }> = {
   g: { code: "G", label: "g" },
@@ -92,6 +92,10 @@ const QUALITATIVE = [
 const SKIP_CATEGORIES = new Set([
   "document control",
   "contents & coverage",
+])
+
+const SINGLE_SERVE_CATEGORIES = new Set([
+  "breakfast",
 ])
 
 const unicodeFractions: Record<string, number> = {
@@ -204,9 +208,18 @@ export function parseQuantity(rawValue: string): ParsedQuantity {
   }
 }
 
-function parseYield(meta: string[]): ParsedQuantity | null {
+function parseYield(meta: string[], category: string): ParsedQuantity | null {
   const preferred = meta.find((line) => /recorded yield|menu serving|recorded batch|production batch|draft batch|draft serving|menu assembly/i.test(line))
-  if (!preferred) return null
+  if (!preferred) {
+    if (SINGLE_SERVE_CATEGORIES.has(category.toLowerCase())) {
+      return {
+        ...parseQuantity("1 portion"),
+        raw: "1 serving (menu item)",
+        inferred: true,
+      }
+    }
+    return null
+  }
   const serves = preferred.match(/menu assembly:\s*serves\s*(\d+(?:\.\d+)?)/i)
   if (serves) return parseQuantity(`${serves[1]} portions`)
   const colon = preferred.indexOf(":")
@@ -234,6 +247,13 @@ function finalizeRecipe(recipe: ParsedRecipeCandidate) {
     issues.push(issue("MISSING_YIELD", "The source does not state a recipe yield or serving quantity."))
   } else {
     issues.push(...recipe.yield.issues.filter((item) => item.severity !== "info"))
+    if (recipe.yield.inferred) {
+      issues.push(issue(
+        "INFERRED_SINGLE_SERVING",
+        "This menu-service recipe has no batch yield in the source, so Seramet will treat one listed recipe as one serving.",
+        "info",
+      ))
+    }
   }
 
   const unresolvedIngredients = recipe.ingredients.filter((ingredient) =>
@@ -369,7 +389,7 @@ export async function parseCookbookDocx(file: File): Promise<{
   commit()
 
   for (const recipe of recipes) {
-    recipe.yield = parseYield(recipe.meta)
+    recipe.yield = parseYield(recipe.meta, recipe.category)
     recipe.sourceStatus = sourceStatus(recipe.meta, recipe.kitchenNotes)
     finalizeRecipe(recipe)
   }
