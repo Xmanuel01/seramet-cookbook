@@ -877,20 +877,25 @@ async function previewImport(context: SerametContext, body: any) {
       : []
 
     const ingredients = Array.isArray(rawRecipe?.ingredients) ? rawRecipe.ingredients.slice(0, 250) : []
+    const missingUnitCodes = new Set<string>()
     const ingredientMatches = ingredients.map((ingredient: any, ingredientIndex: number) => {
       const ingredientName = cleanText(ingredient?.name, 200) || `Ingredient ${ingredientIndex + 1}`
       const inventory: any = inventoryByName.get(normalizeLookup(ingredientName)) || null
       const unitCode = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase() || null
 
       if (unitCode && !configuredUnits.has(unitCode)) {
-        clientIssues.push(importIssue(
-          "UNIT_CREATE_CANDIDATE",
-          `Unit ${unitCode} is not configured in this Seramet tenant yet; it will be created from the controlled cookbook unit registry on commit.`,
-          "info",
-        ))
+        missingUnitCodes.add(unitCode)
       }
 
-      if (unitCode === "PORTION" || /production recipe/i.test(ingredientName)) {
+      const quantityNotes = cleanText(ingredient?.quantity?.notes, 200) || ""
+      const rawQuantity = cleanText(ingredient?.rawQuantity, 200) || ""
+      const isPreparedComponent =
+        unitCode === "PORTION" ||
+        /production recipe/i.test(ingredientName) ||
+        /\bprepared\b/i.test(quantityNotes) ||
+        /\bprepared\b/i.test(rawQuantity)
+
+      if (isPreparedComponent) {
         clientIssues.push(importIssue(
           "PREPARED_COMPONENT_MAPPING_REQUIRED",
           `Prepared component “${ingredientName}” must be linked to a governed Seramet sub-recipe before this recipe can be imported.`,
@@ -929,6 +934,14 @@ async function previewImport(context: SerametContext, body: any) {
         match: inventory ? "existing" : "create-candidate",
       }
     })
+
+    if (missingUnitCodes.size > 0) {
+      clientIssues.push(importIssue(
+        "UNIT_SETUP_PLAN",
+        `Standard Seramet units will be created automatically on import: ${[...missingUnitCodes].sort().join(", ")}.`,
+        "info",
+      ))
+    }
 
     if (existingRecipe) {
       clientIssues.push(importIssue(
