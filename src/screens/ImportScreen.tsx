@@ -242,7 +242,12 @@ export function ImportScreen({
                         <div><span>Source status</span><strong>{row.sourceStatus}</strong></div>
                         <div><span>Yield</span><strong>{row.yield?.raw || "Not recorded"}</strong></div>
                         <div><span>Method</span><strong>{row.method.length ? row.method.length + " steps" : "Not recorded"}</strong></div>
-                        <div><span>Inventory matches</span><strong>{row.ingredientMatches.filter((item) => item.match === "existing").length}/{row.ingredientMatches.length}</strong></div>
+                        <div>
+                          <span>Inventory plan</span>
+                          <strong>
+                            {row.ingredientMatches.filter((item) => item.match === "existing").length} existing · {row.ingredientMatches.filter((item) => item.match === "create-candidate").length} new
+                          </strong>
+                        </div>
                       </div>
 
                       {row.issues.length > 0 ? (
