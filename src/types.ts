@@ -18,7 +18,17 @@ export type Recipe = {
   method: string[]
   notes?: string
   published: boolean
+  version?: number
+  serametItemId?: string | null
 }
+
+export type CookbookWorkspace = {
+  id: string
+  name: string
+  role: "admin" | "editor" | "viewer"
+}
+
+export type BackendMode = "local" | "supabase"
 
 export type PrimaryScreen = "recipes" | "categories" | "import" | "more"
 export type Screen = PrimaryScreen | "detail" | "editor"

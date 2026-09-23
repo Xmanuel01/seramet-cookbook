@@ -1,13 +1,24 @@
-import { ChevronRight, CircleUserRound, Database, GitBranch, ShieldCheck } from "lucide-react"
+import { ChevronRight, CircleUserRound, Cloud, Database, GitBranch, LogOut, ShieldCheck, WifiOff } from "lucide-react"
+import type { BackendMode, CookbookWorkspace } from "../types"
 
-const rows = [
-  { icon: CircleUserRound, label: "Kitchen access", meta: "Roles and permissions" },
-  { icon: Database, label: "Seramet integration", meta: "Backend connection planned" },
-  { icon: GitBranch, label: "Recipe history", meta: "Versioning planned" },
-  { icon: ShieldCheck, label: "Publishing controls", meta: "Approval workflow planned" }
-]
+export function MoreScreen({
+  backendMode,
+  workspace,
+  email,
+  onSignOut,
+}: {
+  backendMode: BackendMode
+  workspace?: CookbookWorkspace | null
+  email?: string | null
+  onSignOut?: () => void
+}) {
+  const rows = [
+    { icon: CircleUserRound, label: "Kitchen access", meta: workspace ? `${workspace.role} · ${email || "signed in"}` : "Local preview access" },
+    { icon: Database, label: "Seramet integration", meta: "Data model prepared for POS linking" },
+    { icon: GitBranch, label: "Recipe history", meta: backendMode === "supabase" ? "Version snapshots enabled" : "Available when Supabase connects" },
+    { icon: ShieldCheck, label: "Publishing controls", meta: backendMode === "supabase" ? "RLS protected workspace" : "Local device only" }
+  ]
 
-export function MoreScreen() {
   return (
     <main className="content">
       <div className="page-header">
@@ -21,8 +32,16 @@ export function MoreScreen() {
       <div className="profile-card">
         <div className="profile-avatar">MS</div>
         <div>
-          <strong>Mona Swahili</strong>
-          <span>Westlands Branch · Kitchen workspace</span>
+          <strong>{workspace?.name || "Mona Swahili"}</strong>
+          <span>{backendMode === "supabase" ? "Secure cloud workspace" : "Local development workspace"}</span>
+        </div>
+      </div>
+
+      <div className={backendMode === "supabase" ? "backend-status online" : "backend-status local"}>
+        {backendMode === "supabase" ? <Cloud size={17} /> : <WifiOff size={17} />}
+        <div>
+          <strong>{backendMode === "supabase" ? "Supabase connected" : "Local mode"}</strong>
+          <span>{backendMode === "supabase" ? "Recipes persist to the shared database." : "Recipes persist on this browser until Supabase is configured."}</span>
         </div>
       </div>
 
@@ -40,9 +59,16 @@ export function MoreScreen() {
         <Database size={18} />
         <div>
           <strong>Built for Seramet</strong>
-          <p>The recipe data model will later connect to items, ingredients, inventory, production and food costing without redesigning the kitchen app.</p>
+          <p>The recipe model includes future Seramet item IDs and can later connect to inventory, production and food costing without rebuilding the kitchen UI.</p>
         </div>
       </div>
+
+      {backendMode === "supabase" && onSignOut && (
+        <button type="button" className="signout-button" onClick={onSignOut}>
+          <LogOut size={16} />
+          Sign out
+        </button>
+      )}
     </main>
   )
 }
