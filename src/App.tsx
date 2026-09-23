@@ -129,7 +129,7 @@ export default function App() {
 
   function startNewRecipe() {
     if (backendMode === "supabase") {
-      setError("Create or link the recipe in Seramet Cost Control first. The cookbook intentionally does not duplicate Seramet recipe identities.")
+      setError("Use Import Cookbook to create reviewed recipes, or create/link the recipe manually in Seramet Cost Control.")
       return
     }
     setEditingId(null)
@@ -202,8 +202,13 @@ export default function App() {
     )
   }
 
+  const branchLabel =
+    (workspace?.branches?.length || 0) > 1
+      ? "All branches"
+      : workspace?.branches?.[0]?.name || workspace?.name || "Mona Swahili"
+
   return (
-    <AppShell screen={screen} onNavigate={navigate} onAdd={startNewRecipe}>
+    <AppShell screen={screen} onNavigate={navigate} onAdd={startNewRecipe} branchLabel={branchLabel}>
       {error && (
         <div className="global-error">
           <div>
