@@ -104,6 +104,17 @@ export type CookbookImportPreview = {
   rows: RecipeImportPreviewRow[]
 }
 
+export type CookbookImportVerification = {
+  verified: boolean
+  menuItem: boolean
+  recipe: boolean
+  version: boolean
+  componentCount: number
+  cookbookContent: boolean
+  auditEvent: boolean
+  recalculationEvent: boolean
+}
+
 export type CookbookImportCommitResult = {
   clientId: string
   name: string
@@ -111,6 +122,7 @@ export type CookbookImportCommitResult = {
   recipeId?: string
   recipeVersionId?: string
   message?: string
+  verification?: CookbookImportVerification
 }
 
 export type CookbookImportCommitReport = {
