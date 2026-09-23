@@ -7,6 +7,7 @@ import type {
   Recipe,
 } from "../types"
 import { supabase } from "./supabase"
+import { getRootTestPasscode } from "./root-test"
 
 const LOCAL_RECIPES_KEY = "seramet-cookbook:recipes:v2"
 
@@ -17,7 +18,9 @@ type GatewayResponse<T> = {
 }
 
 async function invoke<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
-  const { data, error } = await supabase.functions.invoke("cookbook-api", {
+  const rootPasscode = getRootTestPasscode()
+  const { data, error } = await supabase.functions.invoke(rootPasscode ? "cookbook-api-test" : "cookbook-api", {
+    ...(rootPasscode ? { headers: { "x-cookbook-test-passcode": rootPasscode } } : {}),
     body: { action, ...payload },
   })
 
