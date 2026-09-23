@@ -55,6 +55,7 @@ export type ParsedQuantity = {
   unitLabel?: string
   notes?: string
   approximate?: boolean
+  inferred?: boolean
   issues: ImportIssue[]
 }
 
