@@ -243,7 +243,7 @@ async function authenticate(req: Request): Promise<SerametContext> {
 
 const ROOT_TEST_PASSCODE = "123456"
 const ROOT_TEST_EXPIRES_AT = Date.parse("2026-09-30T20:59:59Z")
-const ROOT_TEST_ALLOWED_ORIGIN = "https://seramet-cookbook-pkivuhlxi-xmanuel01s-projects.vercel.app"
+const ROOT_TEST_ALLOWED_ORIGIN = "https://seramet-cookbook-git-test-root-passc-b1ba5a-xmanuel01s-projects.vercel.app"
 
 async function authenticateTestRequest(req: Request): Promise<SerametContext> {
   const passcode = req.headers.get("x-cookbook-test-passcode")?.trim() || ""
