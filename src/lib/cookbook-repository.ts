@@ -1,5 +1,6 @@
 import { seedRecipes } from "../data/recipes"
 import type {
+  CookbookImportCommitReport,
   CookbookImportPreview,
   CookbookWorkspace,
   ParsedRecipeCandidate,
@@ -88,11 +89,23 @@ export async function saveRemoteContent(
   })
 }
 
-export async function previewCookbookImport(input: {
+export type CookbookImportInput = {
   fileName: string
   fileHash: string
   importerVersion: string
   recipes: ParsedRecipeCandidate[]
-}): Promise<CookbookImportPreview> {
+}
+
+export async function previewCookbookImport(input: CookbookImportInput): Promise<CookbookImportPreview> {
   return invoke<CookbookImportPreview>("previewImport", input)
+}
+
+export async function commitCookbookImport(
+  input: CookbookImportInput,
+  selectedClientIds: string[],
+): Promise<CookbookImportCommitReport> {
+  return invoke<CookbookImportCommitReport>("commitImport", {
+    ...input,
+    selectedClientIds,
+  })
 }
