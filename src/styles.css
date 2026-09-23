@@ -567,3 +567,30 @@ h1 { margin-bottom: 0; font-size: clamp(26px, 7vw, 34px); line-height: 1.06; let
     grid-column: 1 / -1;
   }
 }
+
+
+.auth-text-button,
+.auth-back-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.auth-text-button {
+  justify-self: end;
+  margin-top: -4px;
+}
+.auth-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.auth-message.success {
+  background: var(--success-soft);
+  color: var(--success);
+}
