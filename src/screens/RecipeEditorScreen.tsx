@@ -25,11 +25,13 @@ function cleanNumber(value: string, fallback: number) {
 export function RecipeEditorScreen({
   categories,
   existing,
+  coreLocked = false,
   onCancel,
   onSave
 }: {
   categories: string[]
   existing?: Recipe
+  coreLocked?: boolean
   onCancel: () => void
   onSave: (recipe: Recipe) => void
 }) {
@@ -50,10 +52,10 @@ export function RecipeEditorScreen({
   const currentIndex = editorSteps.findIndex((item) => item.id === step)
   const canContinue = useMemo(() => {
     if (step === "basic") return name.trim().length > 1 && category.length > 0
-    if (step === "ingredients") return ingredients.some((item) => item.name.trim() && item.quantity.trim())
+    if (step === "ingredients") return coreLocked || ingredients.some((item) => item.name.trim() && item.quantity.trim())
     if (step === "method") return method.some((item) => item.trim())
     return true
-  }, [category, ingredients, method, name, step])
+  }, [category, coreLocked, ingredients, method, name, step])
 
   function next() {
     const nextStep = editorSteps[currentIndex + 1]
@@ -122,22 +124,22 @@ export function RecipeEditorScreen({
           <div className="form-stack">
             <div className="field">
               <label htmlFor="recipe-name">Recipe name</label>
-              <input id="recipe-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Beef Pilau" />
+              <input id="recipe-name" value={name} disabled={coreLocked} onChange={(event) => setName(event.target.value)} placeholder="e.g. Beef Pilau" />
             </div>
             <div className="field">
               <label htmlFor="recipe-category">Category</label>
-              <select id="recipe-category" value={category} onChange={(event) => setCategory(event.target.value)}>
+              <select id="recipe-category" value={category} disabled={coreLocked} onChange={(event) => setCategory(event.target.value)}>
                 {categories.filter((item) => item !== "All").map((item) => <option key={item}>{item}</option>)}
               </select>
             </div>
             <div className="field">
               <label htmlFor="recipe-description">Short description</label>
-              <textarea id="recipe-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What should kitchen staff know at a glance?" />
+              <textarea id="recipe-description" value={description} disabled={coreLocked} onChange={(event) => setDescription(event.target.value)} placeholder="What should kitchen staff know at a glance?" />
             </div>
             <div className="form-row">
               <div className="field">
                 <label htmlFor="recipe-portions">Yield</label>
-                <input id="recipe-portions" inputMode="numeric" value={portions} onChange={(event) => setPortions(event.target.value)} />
+                <input id="recipe-portions" inputMode="numeric" value={portions} disabled={coreLocked} onChange={(event) => setPortions(event.target.value)} />
               </div>
               <div className="field">
                 <label htmlFor="recipe-portion-size">Portion size</label>
@@ -164,25 +166,41 @@ export function RecipeEditorScreen({
                 <h2>Ingredients</h2>
                 <p>Add only what the kitchen needs to execute the recipe.</p>
               </div>
-              <button
-                type="button"
-                className="secondary-button compact"
-                onClick={() => setIngredients((items) => [...items, { id: "ingredient-" + Date.now(), name: "", quantity: "" }])}
-              >
-                <Plus size={15} />
-                Add
-              </button>
+              {!coreLocked && (
+                <button
+                  type="button"
+                  className="secondary-button compact"
+                  onClick={() => setIngredients((items) => [...items, { id: "ingredient-" + Date.now(), name: "", quantity: "" }])}
+                >
+                  <Plus size={15} />
+                  Add
+                </button>
+              )}
             </div>
+            {coreLocked && (
+              <div className="chef-note" style={{ marginBottom: 12 }}>
+                <span>Seramet controlled</span>
+                <p>Ingredient quantities, units, costing and yield are managed in Seramet Cost Control. The cookbook reads the active recipe version so kitchen instructions cannot silently change food cost.</p>
+              </div>
+            )}
             <div className="editable-list">
               {ingredients.map((ingredient, index) => (
-                <div className="editable-row" key={ingredient.id}>
-                  <span className="row-index">{index + 1}</span>
-                  <input value={ingredient.name} onChange={(event) => updateIngredient(ingredient.id, "name", event.target.value)} placeholder="Ingredient" />
-                  <input value={ingredient.quantity} onChange={(event) => updateIngredient(ingredient.id, "quantity", event.target.value)} placeholder="Qty / unit" />
-                  <button type="button" className="icon-danger" onClick={() => setIngredients((items) => items.filter((item) => item.id !== ingredient.id))} aria-label="Remove ingredient">
-                    <Trash2 size={15} />
-                  </button>
-                </div>
+                coreLocked ? (
+                  <div className="ingredient-row" key={ingredient.id}>
+                    <span className="row-index">{index + 1}</span>
+                    <span>{ingredient.name}</span>
+                    <strong>{ingredient.quantity}</strong>
+                  </div>
+                ) : (
+                  <div className="editable-row" key={ingredient.id}>
+                    <span className="row-index">{index + 1}</span>
+                    <input value={ingredient.name} onChange={(event) => updateIngredient(ingredient.id, "name", event.target.value)} placeholder="Ingredient" />
+                    <input value={ingredient.quantity} onChange={(event) => updateIngredient(ingredient.id, "quantity", event.target.value)} placeholder="Qty / unit" />
+                    <button type="button" className="icon-danger" onClick={() => setIngredients((items) => items.filter((item) => item.id !== ingredient.id))} aria-label="Remove ingredient">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                )
               ))}
             </div>
           </div>
@@ -237,7 +255,7 @@ export function RecipeEditorScreen({
             </div>
             <div className="chef-note">
               <span>Publishing</span>
-              <p>This first version saves locally in the app. Supabase publishing and version history are the next backend milestone.</p>
+              <p>{coreLocked ? "Kitchen-method changes are stored as append-only revisions linked to the active Seramet recipe version." : "This local recipe is saved on this device."}</p>
             </div>
           </div>
         )}
