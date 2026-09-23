@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import type { Session } from "@supabase/supabase-js"
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js"
 import { LoaderCircle, RefreshCw } from "lucide-react"
 import { AppShell } from "./components/AppShell"
 import { defaultCategories, seedRecipes } from "./data/recipes"
@@ -17,6 +17,7 @@ import { ImportScreen } from "./screens/ImportScreen"
 import { MoreScreen } from "./screens/MoreScreen"
 import { RecipeDetailScreen } from "./screens/RecipeDetailScreen"
 import { RecipeEditorScreen } from "./screens/RecipeEditorScreen"
+import { ResetPasswordScreen } from "./screens/ResetPasswordScreen"
 import { RecipesScreen } from "./screens/RecipesScreen"
 import type { BackendMode, CookbookWorkspace, PrimaryScreen, Recipe, Screen } from "./types"
 
@@ -31,6 +32,10 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [recoveringPassword, setRecoveringPassword] = useState(() => {
+    if (typeof window === "undefined") return false
+    return window.location.search.includes("recovery=1") || window.location.hash.includes("type=recovery")
+  })
 
   const selectedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === selectedId),
@@ -65,8 +70,9 @@ export default function App() {
       if (!data.session) setLoading(false)
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, nextSession) => {
       if (!active) return
+      if (event === "PASSWORD_RECOVERY") setRecoveringPassword(true)
       setSession(nextSession)
       if (!nextSession) {
         setWorkspace(null)
@@ -82,7 +88,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !session?.user) return
+    if (!isSupabaseConfigured || !session?.user || recoveringPassword) return
 
     let active = true
     setLoading(true)
@@ -114,7 +120,7 @@ export default function App() {
     return () => {
       active = false
     }
-  }, [session?.user?.id])
+  }, [recoveringPassword, session?.user?.id])
 
   function navigate(next: PrimaryScreen) {
     setScreen(next)
@@ -188,6 +194,10 @@ export default function App() {
 
   async function signOut() {
     await supabase.auth.signOut()
+  }
+
+  if (isSupabaseConfigured && recoveringPassword && session) {
+    return <ResetPasswordScreen onComplete={() => setRecoveringPassword(false)} />
   }
 
   if (isSupabaseConfigured && !session && !loading) return <AuthScreen />
