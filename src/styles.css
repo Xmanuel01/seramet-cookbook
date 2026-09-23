@@ -594,3 +594,34 @@ h1 { margin-bottom: 0; font-size: clamp(26px, 7vw, 34px); line-height: 1.06; let
   background: var(--success-soft);
   color: var(--success);
 }
+
+
+.auth-divider {
+  position: relative;
+  margin: 16px 0 12px;
+  text-align: center;
+}
+.auth-divider::before {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1px;
+  background: var(--border);
+}
+.auth-divider span {
+  position: relative;
+  padding: 0 9px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.auth-test-note {
+  margin: -2px 0 0;
+  color: var(--muted-foreground);
+  font-size: 8.5px;
+  line-height: 1.45;
+  text-align: center;
+}
