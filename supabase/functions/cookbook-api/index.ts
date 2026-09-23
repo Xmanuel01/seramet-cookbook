@@ -657,7 +657,7 @@ async function previewImport(context: SerametContext, body: any) {
       .eq("active", 1),
     admin
       .from("unit_definitions")
-      .select("id,code")
+      .select("id,code,dimension")
       .eq("tenant_id", context.tenantId)
       .eq("active", 1),
   ])
@@ -683,6 +683,7 @@ async function previewImport(context: SerametContext, body: any) {
       .map((row) => [normalizeLookup(row.name), row]),
   )
   const configuredUnits = new Set((unitRows || []).map((row) => String(row.code).toUpperCase()))
+  const unitCodeById = new Map((unitRows || []).map((row) => [String(row.id), String(row.code).toUpperCase()]))
 
   const rows = recipes.map((rawRecipe: any, recipeIndex: number) => {
     const name = cleanText(rawRecipe?.name, 200) || `Recipe ${recipeIndex + 1}`
@@ -710,9 +711,35 @@ async function previewImport(context: SerametContext, body: any) {
       if (unitCode && !configuredUnits.has(unitCode)) {
         clientIssues.push(importIssue(
           "UNIT_CREATE_CANDIDATE",
-          `Unit ${unitCode} is not configured in this Seramet tenant yet; it will need mapping or controlled creation before commit.`,
+          `Unit ${unitCode} is not configured in this Seramet tenant yet; it will be created from the controlled cookbook unit registry on commit.`,
           "info",
         ))
+      }
+
+      if (inventory && unitCode) {
+        const baseUnitId = inventory.base_unit_id ? String(inventory.base_unit_id) : null
+        const baseCode = baseUnitId ? unitCodeById.get(baseUnitId) : null
+        if (!baseUnitId) {
+          clientIssues.push(importIssue(
+            "INVENTORY_BASE_UNIT_MISSING",
+            `Existing inventory item “${ingredientName}” has no base unit configured in Seramet.`,
+          ))
+        } else if (baseCode && baseCode !== unitCode) {
+          const baseDefinition = importUnitDefinitions[baseCode]
+          const incomingDefinition = importUnitDefinitions[unitCode]
+          const safelyConvertible = Boolean(
+            baseDefinition &&
+            incomingDefinition &&
+            baseDefinition.dimension === incomingDefinition.dimension &&
+            baseDefinition.dimension !== "OTHER"
+          )
+          if (!safelyConvertible) {
+            clientIssues.push(importIssue(
+              "INVENTORY_UNIT_MAPPING_REQUIRED",
+              `Existing inventory item “${ingredientName}” uses ${baseCode}; cookbook quantity uses ${unitCode}. Configure an explicit Seramet conversion before import.`,
+            ))
+          }
+        }
       }
 
       return {
@@ -760,6 +787,45 @@ async function previewImport(context: SerametContext, body: any) {
     }
   })
 
+  const ingredientUnitUsage = new Map<string, { codes: Set<string>; rowIndexes: Set<number>; label: string }>()
+  rows.forEach((row: any, rowIndex: number) => {
+    for (const ingredient of row.ingredients || []) {
+      const label = cleanText(ingredient?.name, 200) || "Ingredient"
+      const code = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase()
+      if (!code) continue
+      const key = normalizeLookup(label)
+      const usage = ingredientUnitUsage.get(key) || { codes: new Set<string>(), rowIndexes: new Set<number>(), label }
+      usage.codes.add(code)
+      usage.rowIndexes.add(rowIndex)
+      ingredientUnitUsage.set(key, usage)
+    }
+  })
+
+  for (const usage of ingredientUnitUsage.values()) {
+    if (usage.codes.size <= 1) continue
+    const definitions = [...usage.codes].map((code) => importUnitDefinitions[code]).filter(Boolean)
+    const safelyConvertible =
+      definitions.length === usage.codes.size &&
+      definitions.every((definition) => definition.dimension === definitions[0]?.dimension) &&
+      definitions[0]?.dimension !== "OTHER"
+
+    if (!safelyConvertible) {
+      for (const rowIndex of usage.rowIndexes) {
+        const row: any = rows[rowIndex]
+        row.issues.push(importIssue(
+          "CROSS_RECIPE_UNIT_MAPPING_REQUIRED",
+          `Ingredient “${usage.label}” appears in incompatible cookbook units (${[...usage.codes].join(", ")}). Confirm one inventory base unit or configure a Seramet conversion.`,
+        ))
+      }
+    }
+  }
+
+  for (const row of rows as any[]) {
+    const hasBlocked = row.issues.some((item: any) => item.severity === "blocked")
+    const hasReview = row.issues.some((item: any) => item.severity === "review")
+    row.status = hasBlocked ? "blocked" : hasReview ? "review" : "ready"
+  }
+
   return {
     fileName,
     fileHash,
@@ -790,14 +856,14 @@ const importUnitDefinitions: Record<string, {
   TSP: { name: "Teaspoon", symbol: "tsp", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
   CUP: { name: "Cup", symbol: "cup", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
   SLICE: { name: "Slice", symbol: "slice", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
-  SACHMT: { name: "Sachet", symbol: "sachet", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  SACHET: { name: "Sachet", symbol: "sachet", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
   PACKET: { name: "Packet", symbol: "packet", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
   BUNCH: { name: "Bunch", symbol: "bunch", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
   CONTAINER: { name: "Container", symbol: "container", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
   LEAF: { name: "Leaf", symbol: "leaf", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
   SHOT: { name: "Shot", symbol: "shot", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
   BOTTLE: { name: "Bottle", symbol: "bottle", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
-  ROLl: { name: "Roll", symbol: "roll", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  ROLL: { name: "Roll", symbol: "roll", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
 }
 
 function safeCode(value: unknown, fallback: string) {
