@@ -1,37 +1,49 @@
 # Seramet Cookbook
 
-Seramet Cookbook is a clean, mobile-first restaurant recipe and kitchen standards application for Mona Swahili. It is developed separately from the main POS while using the same Seramet visual language and an integration-ready data model.
+Seramet Cookbook is the mobile-first kitchen companion for Seramet POS. It uses the same visual language and the same restaurant data, while keeping the everyday cooking workflow much simpler than the ERP.
 
-## Current v0.2 scope
+## Current scope
 
-- Seramet design tokens and Plus Jakarta Sans typography
-- Native-feeling mobile bottom navigation and touch-friendly recipe workflow
-- Responsive Seramet-style desktop sidebar
-- Recipe search and category filtering
-- Recipe detail view with ingredients, method and kitchen notes
-- Working multi-step recipe editor
-- Local browser persistence when no backend is configured
-- Supabase Auth integration layer
-- Secure multi-workspace Supabase schema with RLS
-- Persistent recipe/category/ingredient/step repository
-- Recipe version snapshot support
-- Word cookbook import/review interface foundation
-- Seramet tenant, branch, item and inventory linkage fields
+- exact Seramet design tokens and Plus Jakarta Sans typography
+- native-feeling mobile bottom navigation
+- responsive Seramet desktop shell
+- recipe search and category filtering
+- recipe detail view with ingredients, method and kitchen notes
+- kitchen-method editor
+- shared Supabase Auth with Seramet
+- Seramet tenant, role and branch authorization
+- authoritative Seramet recipe/version/component reads
+- append-only cookbook content revisions
+- Word cookbook import/review UI foundation
+- production CI build checks
+
+## Shared backend
+
+The app shares the existing Seramet staging backend. It does **not** create duplicate cookbook workspaces, recipes, ingredients or costing records.
+
+Seramet owns:
+
+`menu item → recipe → recipe version → ingredients → inventory → costing → production`
+
+Cookbook adds:
+
+`prep/cook time → method → chef notes → kitchen media`
+
+See `docs/BACKEND_SETUP.md`.
 
 ## Run locally
 
-1. `npm install`
-2. Copy `.env.example` to `.env.local` if you have a Supabase project.
-3. `npm run dev`
+```bash
+npm install
+npm run dev
+```
 
-Without Supabase values the app automatically runs in local mode.
+The repository includes the browser-safe staging Supabase configuration as a default. Deployment environments can override it with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`.
 
 ## Production build
 
-`npm run build`
+```bash
+npm run build
+```
 
-## Backend
-
-See `docs/BACKEND_SETUP.md` and `database/schema.sql`.
-
-The live Supabase schema has not yet been applied because no Supabase project is currently connected to this development session.
+The Edge Function source is versioned at `supabase/functions/cookbook-api/index.ts`.
