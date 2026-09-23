@@ -860,7 +860,7 @@ async function commitImport(context: SerametContext, body: any) {
     admin.from("recipes").select("id,name,menu_item_id,active").eq("tenant_id", context.tenantId),
   ])
 
-  if (tenantEror) throw tenantError
+  if (tenantError) throw tenantError
   if (unitError) throw unitError
   if (inventoryError) throw inventoryError
   if (menuError) throw menuError
@@ -888,7 +888,7 @@ async function commitImport(context: SerametContext, body: any) {
       const yieldValue = row?.yield?.value
       const yieldCode = cleanText(row?.yield?.unitCode, 40)?.toUpperCase()
       if (!yieldCode || !importUnitDefinitions[yieldCode]) {
-        throw new Error(`Zield unit for ${row.name} is not ready for controlled import.`)
+        throw new Error(`Yield unit for ${row.name} is not ready for controlled import.`)
       }
 
       const requiredUnitCodes = new Set<string>([yieldCode])
@@ -941,42 +941,129 @@ async function commitImport(context: SerametContext, body: any) {
             sku: inventory.sku,
             code: inventory.code,
             name,
-            description: `Created from reviewed cookbook import (${row.category)`K[]Y[]ÛÙNÛÙKÜX]NYKJBBÛÛ\Û[Ë\Ú
-ÂYÛÛ\Û[XÛÛÚØÛÚËIØÜ\Ë[ÛUURQ
+            description: `Created from reviewed cookbook import (${row.category})`,
+            unitId,
+            unitCode: code,
+            create: true,
+          })
+        }
 
-_X[[ÜR][RYÝ[Ê[[ÜKY
-K]X[]SZXÜÎZXÜÔ]X[]J[YJK[]YJBBÛÛÝÝÒÙ^HHÜX[^SÛÚÝ\
-ÝË[YJB]Y[N[HHY[PS[YKÙ]
-ÝÒÙ^JH[]XÚ\N[HHXÚ\PS[YKÙ]
-ÝÒÙ^JH[Y
-\XÚ\H	Y[JHXÚ\HHXÚ\PSY[KÙ]
-Ý[ÊY[KY
-JH[ÛÛÝY[PÜX]HH[Y[BY
-[Y[JHÂÛÛÝÚÙ[HÜ\Ë[ÛUURQ
+        components.push({
+          id: `component-cookbook-${crypto.randomUUID()}`,
+          inventoryItemId: String(inventory.id),
+          quantityMicro: microQuantity(value),
+          unitId,
+        })
+      }
 
-K\XÙP[
-HKÛXÙJL
-KÕ\\Ø\ÙJ
-BY[HHÂYY[KXÛÛÚØÛÚËIØÜ\Ë[ÛUURQ
+      const rowKey = normalizeLookup(row.name)
+      let menu: any = menuByName.get(rowKey) || null
+      let recipe: any = recipeByName.get(rowKey) || null
 
-_XÛÙNÐIÝÚÙ[X[YNÝË[YKBY[PS[YKÙ]
-ÝÒÙ^KY[JBBÛÛÝXÚ\PÜX]HH\XÚ\BY
-\XÚ\JHÂXÚ\HHÂYXÚ\KXÛÛÚØÛÚËIØÜ\Ë[ÛUURQ
+      if (!recipe && menu) recipe = recipeByMenu.get(String(menu.id)) || null
 
-_X[YNÝË[YKY[WÚ][WÚYY[KYXÝ]NKBXÚ\PS[YKÙ]
-ÝÒÙ^KXÚ\JBXÚ\PSY[KÙ]
-Ý[ÊY[KY
-KXÚ\JBBÛÛÝÛÝ\ÙTY\[ÙHHÛÛÚØÛÚÎÜ]Y]Ë[R\ÚNÜÝÒÙ^_XÛÛÝ\Ú[ÛYHXÚ\K]\Ú[ÛXÛÛÚØÛÚËIØÜ\Ë[ÛUURQ
+      const menuCreate = !menu
+      if (!menu) {
+        const token = crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()
+        menu = {
+          id: `menu-cookbook-${crypto.randomUUID()}`,
+          code: `CB-${token}`,
+          name: row.name,
+        }
+        menuByName.set(rowKey, menu)
+      }
 
-_XÛÛÝ^[ØYHÂÝ[\ÛÝ\ÙTY\[ÙK[R\Ú]Y]Ë[R\Ú[\Ü\\Ú[Û]Y]Ë[\Ü\\Ú[Û[]Î[]^[ØY[[ÜN[[ÜT^[ØYY[NÂYÝ[ÊY[KY
-KÛÙNÝ[ÊY[KÛÙHÐIØÜ\Ë[ÛUURQ
+      const recipeCreate = !recipe
+      if (!recipe) {
+        recipe = {
+          id: `recipe-cookbook-${crypto.randomUUID()}`,
+          name: row.name,
+          menu_item_id: menu.id,
+          active: 1,
+        }
+        recipeByName.set(rowKey, recipe)
+        recipeByMenu.set(String(menu.id), recipe)
+      }
 
-KÛXÙJ
-KÕ\\Ø\ÙJ
-_X
-K[YNÝË[YKØ]YÛÜPÛÙNØYPÛÙJÝËØ]YÛÜKÓÓÒÐÓÒÈK\ØÜ\[Û\^K\Ð\^JÝËY]JHÈÝËY]KÚ[KÛXÙJL
-HÝ\[ÞKÜX]NY[PÜX]KKXÚ\NÂYÝ[ÊXÚ\KY
-K[YNÝË[YKÜX]NXÚ\PÜX]KK\Ú[ÛÂY\Ú[ÛYZY[]X[]SZXÜÈÉ½EÕ¹Ñ¥Ñä¡å¥±Y±Õ¤°(å¥±U¹¥Ñ%èÕ¹¥Ñ	å½¹Ð¡å¥±½¤°(ô°(½µÁ½¹¹ÑÌ°(½¹Ñ¹Ðèì(ÁÉÁ5¥¹ÕÑÌèÀ°(½½­5¥¹ÕÑÌèÀ°(Á½ÉÑ¥½¹1°èMÑÉ¥¹¡É½Üü¹å¥±ü¹ÉÜñð¤°(¥µUÉ°è¹Õ±°°(¡9½ÑÌèÉÉä¹¥ÍÉÉä¡É½Ü¹­¥Ñ¡¹9½ÑÌ¤üÉ½Ü¹­¥Ñ¡¹9½ÑÌ¹©½¥¸ q¸¤¹Í±¥ À°àÀÀÀ¤è°(µÑ¡½èÉÉä¹¥ÍÉÉä¡É½Ü¹µÑ¡½¤üÉ½Ü¹µÑ¡½¹Í±¥ À°ÄÀÀ¤èmt°(µ¥èmt°(Í½ÕÉ½Õµ¹ÐèÁÉÙ¥Ü¹¥±9µ°(¡¹MÕµµÉäè%µÁ½ÉÑÉ½´ÉÙ¥Ý½½­½½¬°(ô°(ô((½¹ÍÐìÑ°ÉÉ½ÈôôÝ¥Ðµ¥¸¹ÉÁ ½µµ¥Ñ}½½­½½­}É¥Á}ØÄ°ì(Á}Ñ¹¹Ñ}¥è½¹ÑáÐ¹Ñ¹¹Ñ%°(Á}Ñ½É}¥è½¹ÑáÐ¹ÕÍÉ%°(Á}Áå±½èÁå±½°(ô¤(¥¡ÉÉ½È¤Ñ¡É½ÜÉÉ½È((½¹ÍÐ½µµ¥ÑÑôÑÌ¹ä(ÉÍÕ±ÑÌ¹ÁÕÍ ¡ì(±¥¹Ñ%èMÑÉ¥¹¡É½Ü¹±¥¹Ñ%¤°(¹µèÉ½Ü¹¹µ°(ÍÑÑÕÌè½µµ¥ÑÑü¹ÍÑÑÕÌôôôÍ­¥ÁÁüÍ­¥ÁÁè¥µÁ½ÉÑ°(É¥Á%èMÑÉ¥¹¡½µµ¥ÑÑü¹É¥Á%ñðÉ¥Á¹¥¤°(É¥ÁYÉÍ¥½¹%è½µµ¥ÑÑü¹É¥ÁYÉÍ¥½¹%üMÑÉ¥¹¡½µµ¥ÑÑ¹É¥ÁYÉÍ¥½¹%¤èÕ¹¥¹°(µÍÍè½µµ¥ÑÑü¹ÉÍ½¸üMÑÉ¥¹¡½µµ¥ÑÑ¹ÉÍ½¸¤èÕ¹¥¹°(ô¤(ôÑ ¡ÉÉ½È¤ì(ÉÍÕ±ÑÌ¹ÁÕÍ ¡ì(±¥¹Ñ%èMÑÉ¥¹¡É½Ü¹±¥¹Ñ%¤°(¹µèMÑÉ¥¹¡É½Ü¹¹µ¤°(ÍÑÑÕÌè¥±°(µÍÍèÉÉ½È¥¹ÍÑ¹½ÉÉ½ÈüÉÉ½È¹µÍÍèI¥Á¥µÁ½ÉÐ¥±¸°(ô¤(ô(ô((ÉÑÕÉ¸ì(¥±9µèÁÉÙ¥Ü¹¥±9µ°(¥±!Í èÁÉÙ¥Ü¹¥±!Í °(Í±Ñ½Õ¹ÐèÍ±ÑI½ÝÌ¹±¹Ñ °(¥µÁ½ÉÑ½Õ¹ÐèÉÍÕ±ÑÌ¹¥±ÑÈ ¡¥Ñ´¤ôø¥Ñ´¹ÍÑÑÕÌôôô¥µÁ½ÉÑ¤¹±¹Ñ °(Í­¥ÁÁ½Õ¹ÐèÉÍÕ±ÑÌ¹¥±ÑÈ ¡¥Ñ´¤ôø¥Ñ´¹ÍÑÑÕÌôôôÍ­¥ÁÁ¤¹±¹Ñ °(¥±½Õ¹ÐèÉÍÕ±ÑÌ¹¥±ÑÈ ¡¥Ñ´¤ôø¥Ñ´¹ÍÑÑÕÌôôô¥±¤¹±¹Ñ °(ÉÍÕ±ÑÌ°(ô)ô(
+      const sourceReference = `cookbook:${preview.fileHash}:${rowKey}`
+      const versionId = `recipe-version-cookbook-${crypto.randomUUID()}`
+      const payload = {
+        stamp,
+        sourceReference,
+        fileHash: preview.fileHash,
+        importerVersion: preview.importerVersion,
+        units: unitPayload,
+        inventory: inventoryPayload,
+        menu: {
+          id: String(menu.id),
+          code: String(menu.code || `CB-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
+          name: row.name,
+          categoryCode: safeCode(row.category, "COOKBOOK"),
+          description: Array.isArray(row.meta) ? row.meta.join(" | ").slice(0, 1000) : "",
+          currency,
+          create: menuCreate,
+        },
+        recipe: {
+          id: String(recipe.id),
+          name: row.name,
+          create: recipeCreate,
+        },
+        version: {
+          id: versionId,
+          yieldQuantityMicro: microQuantity(yieldValue),
+          yieldUnitId: unitByCode.get(yieldCode),
+        },
+        components,
+        content: {
+          prepMinutes: 0,
+          cookMinutes: 0,
+          portionLabel: String(row?.yield?.raw || ""),
+          imageUrl: null,
+          chefNotes: Array.isArray(row.kitchenNotes) ? row.kitchenNotes.join("\n").slice(0, 8000) : "",
+          method: Array.isArray(row.method) ? row.method.slice(0, 100) : [],
+          media: [],
+          sourceDocument: preview.fileName,
+          changeSummary: "Imported from reviewed cookbook",
+        },
+      }
+
+      const { data, error } = await admin.rpc("commit_cookbook_recipe_v1", {
+        p_tenant_id: context.tenantId,
+        p_actor_id: context.userId,
+        p_payload: payload,
+      })
+      if (error) throw error
+
+      const committed = data as any
+      results.push({
+        clientId: String(row.clientId),
+        name: row.name,
+        status: committed?.status === "skipped" ? "skipped" : "imported",
+        recipeId: String(committed?.recipeId || recipe.id),
+        recipeVersionId: committed?.recipeVersionId ? String(committed.recipeVersionId) : undefined,
+        message: committed?.reason ? String(committed.reason) : undefined,
+      })
+    } catch (error) {
+      results.push({
+        clientId: String(row.clientId),
+        name: String(row.name),
+        status: "failed",
+        message: error instanceof Error ? error.message : "Recipe import failed.",
+      })
+    }
+  }
+
+  return {
+    fileName: preview.fileName,
+    fileHash: preview.fileHash,
+    selectedCount: selectedRows.length,
+    importedCount: results.filter((item) => item.status === "imported").length,
+    skippedCount: results.filter((item) => item.status === "skipped").length,
+    failedCount: results.filter((item) => item.status === "failed").length,
+    results,
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
   if (req.method !== "POST") return response({ ok: false, error: "Method not allowed" }, 405)
