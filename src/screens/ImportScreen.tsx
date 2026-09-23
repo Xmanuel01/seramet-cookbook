@@ -329,8 +329,19 @@ export function ImportScreen({
               <div className="import-result-lines">
                 {report.results.map((item) => (
                   <div className={"import-result-line " + item.status} key={item.clientId}>
-                    {item.status === "failed" ? <XCircle size={14} /> : <CheckCircle2 size={14} />}
-                    <span><strong>{item.name}</strong>{item.message ? " · " + item.message : ""}</span>
+                    {item.status === "failed" || item.verification?.verified === false
+                      ? <XCircle size={14} />
+                      : <CheckCircle2 size={14} />}
+                    <span>
+                      <strong>{item.name}</strong>
+                      {item.verification
+                        ? item.verification.verified
+                          ? " · Seramet chain verified"
+                          : " · Imported, but post-import verification needs attention"
+                        : item.message
+                          ? " · " + item.message
+                          : ""}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -504,7 +515,7 @@ export function ImportScreen({
                             onClick={() => void importOne(row)}
                           >
                             {importingId === row.clientId && <LoaderCircle className="spin" size={15} />}
-                            {imported ? "Imported" : "Import this recipe"}
+                            {imported ? "Imported & verified" : "Import this recipe"}
                           </button>
                         </div>
                       )}
