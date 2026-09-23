@@ -6,7 +6,7 @@ import type {
   ParsedRecipeCandidate,
 } from "../types"
 
-const IMPORTER_VERSION = "docx-semantic-v2"
+const IMPORTER_VERSION = "docx-semantic-v3"
 
 const UNIT_ALIASES: Record<string, { code: string; label: string }> = {
   g: { code: "G", label: "g" },
@@ -192,6 +192,12 @@ export function parseQuantity(rawValue: string): ParsedQuantity {
 
   if (/draft|validate|confirm/i.test(notes)) {
     issues.push(issue("SOURCE_REVIEW_NOTE", `Source note “${notes}” requires review.`))
+  }
+  if (/\b(as needed|as required|for frying|for deep frying|to taste|enough to|until covered)\b/i.test(notes)) {
+    issues.push(issue(
+      "UNQUANTIFIED_USAGE_NOTE",
+      `Quantity “${raw}” includes an additional unquantified amount and needs one exact costing quantity.`,
+    ))
   }
   if (approximate) {
     issues.push(issue("APPROXIMATE_QUANTITY", `Approximate quantity “${raw}” requires confirmation before authoritative import.`))
