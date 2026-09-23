@@ -716,6 +716,13 @@ async function previewImport(context: SerametContext, body: any) {
         ))
       }
 
+      if (unitCode === "PORTION" || /production recipe/i.test(ingredientName)) {
+        clientIssues.push(importIssue(
+          "PREPARED_COMPONENT_MAPPING_REQUIRED",
+          `Prepared component “${ingredientName}” must be linked to a governed Seramet sub-recipe before this recipe can be imported.`,
+        ))
+      }
+
       if (inventory && unitCode) {
         const baseUnitId = inventory.base_unit_id ? String(inventory.base_unit_id) : null
         const baseCode = baseUnitId ? unitCodeById.get(baseUnitId) : null
@@ -787,36 +794,60 @@ async function previewImport(context: SerametContext, body: any) {
     }
   })
 
-  const ingredientUnitUsage = new Map<string, { codes: Set<string>; rowIndexes: Set<number>; label: string }>()
+  function conversionFamily(code: string) {
+    const definition = importUnitDefinitions[code]
+    if (!definition) return `UNKNOWN:${code}`
+    return definition.dimension === "OTHER" ? `OTHER:${code}` : definition.dimension
+  }
+
+  const ingredientUnitUsage = new Map<string, {
+    label: string
+    entries: Array<{ rowIndex: number; code: string }>
+  }>()
+
   rows.forEach((row: any, rowIndex: number) => {
+    if (row.status !== "ready") return
     for (const ingredient of row.ingredients || []) {
       const label = cleanText(ingredient?.name, 200) || "Ingredient"
       const code = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase()
       if (!code) continue
       const key = normalizeLookup(label)
-      const usage = ingredientUnitUsage.get(key) || { codes: new Set<string>(), rowIndexes: new Set<number>(), label }
-      usage.codes.add(code)
-      usage.rowIndexes.add(rowIndex)
+      const usage = ingredientUnitUsage.get(key) || { label, entries: [] }
+      usage.entries.push({ rowIndex, code })
       ingredientUnitUsage.set(key, usage)
     }
   })
 
-  for (const usage of ingredientUnitUsage.values()) {
-    if (usage.codes.size <= 1) continue
-    const definitions = [...usage.codes].map((code) => importUnitDefinitions[code]).filter(Boolean)
-    const safelyConvertible =
-      definitions.length === usage.codes.size &&
-      definitions.every((definition) => definition.dimension === definitions[0]?.dimension) &&
-      definitions[0]?.dimension !== "OTHER"
+  for (const [ingredientKey, usage] of ingredientUnitUsage.entries()) {
+    if (usage.entries.length <= 1) continue
 
-    if (!safelyConvertible) {
-      for (const rowIndex of usage.rowIndexes) {
-        const row: any = rows[rowIndex]
-        row.issues.push(importIssue(
-          "CROSS_RECIPE_UNIT_MAPPING_REQUIRED",
-          `Ingredient “${usage.label}” appears in incompatible cookbook units (${[...usage.codes].join(", ")}). Confirm one inventory base unit or configure a Seramet conversion.`,
-        ))
-      }
+    const existingInventory: any = inventoryByName.get(ingredientKey) || null
+    const existingBaseCode = existingInventory?.base_unit_id
+      ? unitCodeById.get(String(existingInventory.base_unit_id))
+      : null
+
+    let targetFamily = existingBaseCode ? conversionFamily(existingBaseCode) : ""
+    if (!targetFamily) {
+      const counts = new Map<string, { count: number; firstIndex: number }>()
+      usage.entries.forEach((entry, entryIndex) => {
+        const family = conversionFamily(entry.code)
+        const current = counts.get(family)
+        counts.set(family, {
+          count: (current?.count || 0) + 1,
+          firstIndex: current?.firstIndex ?? entryIndex,
+        })
+      })
+      targetFamily = [...counts.entries()]
+        .sort((a, b) => b[1].count - a[1].count || a[1].firstIndex - b[1].firstIndex)[0]?.[0] || ""
+    }
+
+    for (const entry of usage.entries) {
+      if (conversionFamily(entry.code) === targetFamily) continue
+      const row: any = rows[entry.rowIndex]
+      row.issues.push(importIssue(
+        "CROSS_RECIPE_UNIT_MAPPING_REQUIRED",
+        `Ingredient “${usage.label}” uses ${entry.code}, while this import resolves its Seramet base family to ${targetFamily.replace(/^OTHER:/, "")}. Confirm an explicit conversion before importing this recipe.`,
+      ))
     }
   }
 
