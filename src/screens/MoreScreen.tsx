@@ -14,9 +14,9 @@ export function MoreScreen({
 }) {
   const rows = [
     { icon: CircleUserRound, label: "Kitchen access", meta: workspace ? `${workspace.role} · ${email || "signed in"}` : "Local preview access" },
-    { icon: Database, label: "Seramet integration", meta: "Data model prepared for POS linking" },
-    { icon: GitBranch, label: "Recipe history", meta: backendMode === "supabase" ? "Version snapshots enabled" : "Available when Supabase connects" },
-    { icon: ShieldCheck, label: "Publishing controls", meta: backendMode === "supabase" ? "RLS protected workspace" : "Local device only" }
+    { icon: Database, label: "Seramet integration", meta: backendMode === "supabase" ? "Shared Seramet staging backend" : "Local preview" },
+    { icon: GitBranch, label: "Recipe history", meta: backendMode === "supabase" ? "Seramet versions + cookbook revisions" : "Available in Seramet mode" },
+    { icon: ShieldCheck, label: "Publishing controls", meta: backendMode === "supabase" ? (workspace?.canPublish ? "Your Seramet role can publish" : "View/edit rights follow Seramet roles") : "Local device only" }
   ]
 
   return (
@@ -33,7 +33,7 @@ export function MoreScreen({
         <div className="profile-avatar">MS</div>
         <div>
           <strong>{workspace?.name || "Mona Swahili"}</strong>
-          <span>{backendMode === "supabase" ? "Secure cloud workspace" : "Local development workspace"}</span>
+          <span>{backendMode === "supabase" ? "Seramet shared staging workspace" : "Local development workspace"}</span>
         </div>
       </div>
 
@@ -41,7 +41,7 @@ export function MoreScreen({
         {backendMode === "supabase" ? <Cloud size={17} /> : <WifiOff size={17} />}
         <div>
           <strong>{backendMode === "supabase" ? "Supabase connected" : "Local mode"}</strong>
-          <span>{backendMode === "supabase" ? "Recipes persist to the shared database." : "Recipes persist on this browser until Supabase is configured."}</span>
+          <span>{backendMode === "supabase" ? "Auth, tenant, recipes, ingredients and costing are shared with Seramet." : "Recipes persist on this browser in local mode."}</span>
         </div>
       </div>
 
@@ -59,7 +59,7 @@ export function MoreScreen({
         <Database size={18} />
         <div>
           <strong>Built for Seramet</strong>
-          <p>The recipe model includes future Seramet item IDs and can later connect to inventory, production and food costing without rebuilding the kitchen UI.</p>
+          <p>Seramet remains authoritative for recipe versions, yields, ingredients, inventory and food costing. This app adds the kitchen-friendly method and presentation layer.</p>
         </div>
       </div>
 
