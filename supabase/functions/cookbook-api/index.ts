@@ -772,6 +772,211 @@ async function previewImport(context: SerametContext, body: any) {
   }
 }
 
+
+const importUnitDefinitions: Record<string, {
+  name: string
+  symbol: string
+  dimension: "MASS" | "VOLUME" | "COUNT" | "OTHER"
+  baseScaleNumerator: number
+  baseScaleDenominator: number
+}> = {
+  KG: { name: "Kilogram", symbol: "kg", dimension: "MASS", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  G: { name: "Gram", symbol: "g", dimension: "MASS", baseScaleNumerator: 1, baseScaleDenominator: 1000 },
+  L: { name: "Litre", symbol: "L", dimension: "VOLUME", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  ML: { name: "Millilitre", symbol: "ml", dimension: "VOLUME", baseScaleNumerator: 1, baseScaleDenominator: 1000 },
+  PC: { name: "Piece", symbol: "pc", dimension: "COUNT", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  PORTION: { name: "Portion", symbol: "portion", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  TBSP: { name: "Tablespoon", symbol: "tbsp", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  TSP: { name: "Teaspoon", symbol: "tsp", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  CUP: { name: "Cup", symbol: "cup", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  SLICE: { name: "Slice", symbol: "slice", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  SACHMT: { name: "Sachet", symbol: "sachet", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  PACKET: { name: "Packet", symbol: "packet", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  BUNCH: { name: "Bunch", symbol: "bunch", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  CONTAINER: { name: "Container", symbol: "container", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  LEAF: { name: "Leaf", symbol: "leaf", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  SHOT: { name: "Shot", symbol: "shot", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  BOTTLE: { name: "Bottle", symbol: "bottle", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+  ROLl: { name: "Roll", symbol: "roll", dimension: "OTHER", baseScaleNumerator: 1, baseScaleDenominator: 1 },
+}
+
+function safeCode(value: unknown, fallback: string) {
+  const code = String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48)
+  return code || fallback
+}
+
+function microQuantity(value: unknown) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) {
+    throw Object.assign(new Error("Import contains a non-positive numeric quantity."), { status: 409 })
+  }
+  const micro = Math.round(number * 1_000_000)
+  if (!Number.isSafeInteger(micro) || micro <= 0) {
+    throw Object.assign(new Error("Import quantity is outside Seramet limits."), { status: 409 })
+  }
+  return micro
+}
+
+async function commitImport(context: SerametContext, body: any) {
+  requirePermission(context, "cookbook.manage")
+  requirePermission(context, "cookbook.publish")
+  requirePermission(context, "costcontrol.manage")
+
+  const preview = await previewImport(context, body)
+  const requested = Array.isArray(body?.selectedClientIds)
+    ? new Set(body.selectedClientIds.map((id: unknown) => String(id)))
+    : new Set(preview.rows.filter((row: any) => row.status === "ready").map((row: any) => String(row.clientId)))
+
+  const selectedRows = preview.rows.filter((row: any) => requested.has(String(row.clientId)))
+  if (!selectedRows.length) {
+    throw Object.assign(new Error("Select at least one ready recipe to import."), { status: 400 })
+  }
+
+  const unsafe = selectedRows.filter((row: any) => row.status !== "ready")
+  if (unsafe.length) {
+    throw Object.assign(
+      new Error(`${unsafe.length} selected recipe(s) still require review and were not imported.`),
+      { status: 409 },
+    )
+  }
+
+  const [
+    { data: tenant, error: tenantError },
+    { data: unitRows, error: unitError },
+    { data: inventoryRows, error: inventoryError },
+   { data: menuRows, error: menuError },
+    { data: recipeRows, error: recipeError },
+  ] = await Promise.all([
+    admin.from("tenants").select("default_currency").eq("id", context.tenantId).single(),
+    admin.from("unit_definitions").select("id,code").eq("tenant_id", context.tenantId).eq("active", 1),
+    admin.from("inventory_items").select("id,name,sku,base_unit_id").eq("tenant_id", context.tenantId).eq("active", 1),
+    admin.from("menu_catalog_items").select("id,name,code,recipe_reference").eq("tenant_id", context.tenantId).eq("active", 1),
+    admin.from("recipes").select("id,name,menu_item_id,active").eq("tenant_id", context.tenantId),
+  ])
+
+  if (tenantEror) throw tenantError
+  if (unitError) throw unitError
+  if (inventoryError) throw inventoryError
+  if (menuError) throw menuError
+  if (recipeError) throw recipeError
+
+  const unitByCode = new Map((unitRows || []).map((row: any) => [String(row.code).toUpperCase(), String(row.id)]))
+  const inventoryByName = new Map((inventoryRows || []).map((row: any) => [normalizeLookup(row.name), row]))
+  const menuByName = new Map((menuRows || []).map((row: any) => [normalizeLookup(row.name), row]))
+  const recipeByName = new Map((recipeRows || []).filter((row: any) => Number(row.active) === 1).map((row: any) => [normalizeLookup(row.name), row]))
+  const recipeByMenu = new Map((recipeRows || []).map((row: any) => [String(row.menu_item_id), row]))
+  const currency = String(tenant?.default_currency || "KES")
+  const stamp = new Date().toISOString()
+
+  const results: Array<{
+    clientId: string
+    name: string
+    status: "imported" | "skipped" | "failed"
+    recipeId?: string
+    recipeVersionId?: string
+    message?: string
+  }> = []
+
+  for (const row of selectedRows as any[]) {
+    try {
+      const yieldValue = row?.yield?.value
+      const yieldCode = cleanText(row?.yield?.unitCode, 40)?.toUpperCase()
+      if (!yieldCode || !importUnitDefinitions[yieldCode]) {
+        throw new Error(`Zield unit for ${row.name} is not ready for controlled import.`)
+      }
+
+      const requiredUnitCodes = new Set<string>([yieldCode])
+      for (const ingredient of row.ingredients || []) {
+        const code = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase()
+        if (!code || !importUnitDefinitions[code]) {
+          throw new Error(`Ingredient unit for ${ingredient?.name || row.name} is not ready for controlled import.`)
+        }
+        requiredUnitCodes.add(code)
+      }
+
+      const unitPayload: any[] = []
+      for (const code of requiredUnitCodes) {
+        let id = unitByCode.get(code)
+        if (!id) {
+          id = `unit-cookbook-${crypto.randomUUID()}`
+          const definition = importUnitDefinitions[code]
+          unitPayload.push({ id, code, ...definition, create: true })
+          unitByCode.set(code, id)
+        } else {
+          const definition = importUnitDefinitions[code]
+          unitPayload.push({ id, code, ...definition, create: false })
+        }
+      }
+
+      const inventoryPayload: any[] = []
+      const components: any[] = []
+
+      for (const ingredient of row.ingredients || []) {
+        const name = cleanText(ingredient?.name, 200)
+        const value = ingredient?.quantity?.value
+        const code = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase()
+        if (!name || !code) throw new Error(`Ingredient structure for ${row.name} is incomplete.`)
+        const unitId = unitByCode.get(code)
+        if (!unitId) throw new Error(`Unit ${code} was not resolved.`)
+
+        let inventory: any = inventoryByName.get(normalizeLookup(name)) || null
+        if (!inventory) {
+          const token = crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()
+          inventory = {
+            id: `inventory-cookbook-${crypto.randomUUID()}`,
+            sku: `CBI-${token}`,
+            code: `CBI_${token}`,
+            name,
+            base_unit_id: unitId,
+          }
+          inventoryByName.set(normalizeLookup(name), inventory)
+          inventoryPayload.push({
+            id: inventory.id,
+            sku: inventory.sku,
+            code: inventory.code,
+            name,
+            description: `Created from reviewed cookbook import (${row.category)`K[]Y[]ÛÙNÛÙKÜX]NYKJBBÛÛ\Û[Ë\Ú
+ÂYÛÛ\Û[XÛÛÚØÛÚËIØÜ\Ë[ÛUURQ
+
+_X[[ÜR][RYÝ[Ê[[ÜKY
+K]X[]SZXÜÎZXÜÔ]X[]J[YJK[]YJBBÛÛÝÝÒÙ^HHÜX[^SÛÚÝ\
+ÝË[YJB]Y[N[HHY[PS[YKÙ]
+ÝÒÙ^JH[]XÚ\N[HHXÚ\PS[YKÙ]
+ÝÒÙ^JH[Y
+\XÚ\H	Y[JHXÚ\HHXÚ\PSY[KÙ]
+Ý[ÊY[KY
+JH[ÛÛÝY[PÜX]HH[Y[BY
+[Y[JHÂÛÛÝÚÙ[HÜ\Ë[ÛUURQ
+
+K\XÙP[
+HKÛXÙJL
+KÕ\\Ø\ÙJ
+BY[HHÂYY[KXÛÛÚØÛÚËIØÜ\Ë[ÛUURQ
+
+_XÛÙNÐIÝÚÙ[X[YNÝË[YKBY[PS[YKÙ]
+ÝÒÙ^KY[JBBÛÛÝXÚ\PÜX]HH\XÚ\BY
+\XÚ\JHÂXÚ\HHÂYXÚ\KXÛÛÚØÛÚËIØÜ\Ë[ÛUURQ
+
+_X[YNÝË[YKY[WÚ][WÚYY[KYXÝ]NKBXÚ\PS[YKÙ]
+ÝÒÙ^KXÚ\JBXÚ\PSY[KÙ]
+Ý[ÊY[KY
+KXÚ\JBBÛÛÝÛÝ\ÙTY\[ÙHHÛÛÚØÛÚÎÜ]Y]Ë[R\ÚNÜÝÒÙ^_XÛÛÝ\Ú[ÛYHXÚ\K]\Ú[ÛXÛÛÚØÛÚËIØÜ\Ë[ÛUURQ
+
+_XÛÛÝ^[ØYHÂÝ[\ÛÝ\ÙTY\[ÙK[R\Ú]Y]Ë[R\Ú[\Ü\\Ú[Û]Y]Ë[\Ü\\Ú[Û[]Î[]^[ØY[[ÜN[[ÜT^[ØYY[NÂYÝ[ÊY[KY
+KÛÙNÝ[ÊY[KÛÙHÐIØÜ\Ë[ÛUURQ
+
+KÛXÙJ
+KÕ\\Ø\ÙJ
+_X
+K[YNÝË[YKØ]YÛÜPÛÙNØYPÛÙJÝËØ]YÛÜKÓÓÒÐÓÒÈK\ØÜ\[Û\^K\Ð\^JÝËY]JHÈÝËY]KÚ[KÛXÙJL
+HÝ\[ÞKÜX]NY[PÜX]KKXÚ\NÂYÝ[ÊXÚ\KY
+K[YNÝË[YKÜX]NXÚ\PÜX]KK\Ú[ÛÂY\Ú[ÛYZY[]X[]SZXÜÈÉ½EÕ¹Ñ¥Ñä¡å¥±Y±Õ¤°(å¥±U¹¥Ñ%èÕ¹¥Ñ	å½¹Ð¡å¥±½¤°(ô°(½µÁ½¹¹ÑÌ°(½¹Ñ¹Ðèì(ÁÉÁ5¥¹ÕÑÌèÀ°(½½­5¥¹ÕÑÌèÀ°(Á½ÉÑ¥½¹1°èMÑÉ¥¹¡É½Üü¹å¥±ü¹ÉÜñð¤°(¥µUÉ°è¹Õ±°°(¡9½ÑÌèÉÉä¹¥ÍÉÉä¡É½Ü¹­¥Ñ¡¹9½ÑÌ¤üÉ½Ü¹­¥Ñ¡¹9½ÑÌ¹©½¥¸ q¸¤¹Í±¥ À°àÀÀÀ¤è°(µÑ¡½èÉÉä¹¥ÍÉÉä¡É½Ü¹µÑ¡½¤üÉ½Ü¹µÑ¡½¹Í±¥ À°ÄÀÀ¤èmt°(µ¥èmt°(Í½ÕÉ½Õµ¹ÐèÁÉÙ¥Ü¹¥±9µ°(¡¹MÕµµÉäè%µÁ½ÉÑÉ½´ÉÙ¥Ý½½­½½¬°(ô°(ô((½¹ÍÐìÑ°ÉÉ½ÈôôÝ¥Ðµ¥¸¹ÉÁ ½µµ¥Ñ}½½­½½­}É¥Á}ØÄ°ì(Á}Ñ¹¹Ñ}¥è½¹ÑáÐ¹Ñ¹¹Ñ%°(Á}Ñ½É}¥è½¹ÑáÐ¹ÕÍÉ%°(Á}Áå±½èÁå±½°(ô¤(¥¡ÉÉ½È¤Ñ¡É½ÜÉÉ½È((½¹ÍÐ½µµ¥ÑÑôÑÌ¹ä(ÉÍÕ±ÑÌ¹ÁÕÍ ¡ì(±¥¹Ñ%èMÑÉ¥¹¡É½Ü¹±¥¹Ñ%¤°(¹µèÉ½Ü¹¹µ°(ÍÑÑÕÌè½µµ¥ÑÑü¹ÍÑÑÕÌôôôÍ­¥ÁÁüÍ­¥ÁÁè¥µÁ½ÉÑ°(É¥Á%èMÑÉ¥¹¡½µµ¥ÑÑü¹É¥Á%ñðÉ¥Á¹¥¤°(É¥ÁYÉÍ¥½¹%è½µµ¥ÑÑü¹É¥ÁYÉÍ¥½¹%üMÑÉ¥¹¡½µµ¥ÑÑ¹É¥ÁYÉÍ¥½¹%¤èÕ¹¥¹°(µÍÍè½µµ¥ÑÑü¹ÉÍ½¸üMÑÉ¥¹¡½µµ¥ÑÑ¹ÉÍ½¸¤èÕ¹¥¹°(ô¤(ôÑ ¡ÉÉ½È¤ì(ÉÍÕ±ÑÌ¹ÁÕÍ ¡ì(±¥¹Ñ%èMÑÉ¥¹¡É½Ü¹±¥¹Ñ%¤°(¹µèMÑÉ¥¹¡É½Ü¹¹µ¤°(ÍÑÑÕÌè¥±°(µÍÍèÉÉ½È¥¹ÍÑ¹½ÉÉ½ÈüÉÉ½È¹µÍÍèI¥Á¥µÁ½ÉÐ¥±¸°(ô¤(ô(ô((ÉÑÕÉ¸ì(¥±9µèÁÉÙ¥Ü¹¥±9µ°(¥±!Í èÁÉÙ¥Ü¹¥±!Í °(Í±Ñ½Õ¹ÐèÍ±ÑI½ÝÌ¹±¹Ñ °(¥µÁ½ÉÑ½Õ¹ÐèÉÍÕ±ÑÌ¹¥±ÑÈ ¡¥Ñ´¤ôø¥Ñ´¹ÍÑÑÕÌôôô¥µÁ½ÉÑ¤¹±¹Ñ °(Í­¥ÁÁ½Õ¹ÐèÉÍÕ±ÑÌ¹¥±ÑÈ ¡¥Ñ´¤ôø¥Ñ´¹ÍÑÑÕÌôôôÍ­¥ÁÁ¤¹±¹Ñ °(¥±½Õ¹ÐèÉÍÕ±ÑÌ¹¥±ÑÈ ¡¥Ñ´¤ôø¥Ñ´¹ÍÑÑÕÌôôô¥±¤¹±¹Ñ °(ÉÍÕ±ÑÌ°(ô)ô(
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
   if (req.method !== "POST") return response({ ok: false, error: "Method not allowed" }, 405)
@@ -791,6 +996,10 @@ Deno.serve(async (req: Request) => {
 
     if (action === "previewImport") {
       return response({ ok: true, data: await previewImport(context, body) })
+    }
+
+    if (action === "commitImport") {
+      return response({ ok: true, data: await commitImport(context, body) })
     }
 
     if (action === "getRecipe") {
