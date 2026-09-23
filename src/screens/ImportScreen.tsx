@@ -6,12 +6,17 @@ import {
   FileText,
   FileUp,
   LoaderCircle,
+  PencilLine,
   RefreshCw,
   ShieldCheck,
   TriangleAlert,
   XCircle,
 } from "lucide-react"
-import { parseCookbookDocx } from "../lib/docx-cookbook-parser"
+import {
+  parseCookbookDocx,
+  parseQuantity,
+  revalidateRecipeCandidate,
+} from "../lib/docx-cookbook-parser"
 import {
   commitCookbookImport,
   previewCookbookImport,
@@ -20,8 +25,15 @@ import {
 import type {
   CookbookImportCommitReport,
   CookbookImportPreview,
+  ParsedRecipeCandidate,
   RecipeImportPreviewRow,
 } from "../types"
+
+type ResolutionDraft = {
+  yieldRaw: string
+  ingredientRaw: Record<string, string>
+  acceptSourceStatus: boolean
+}
 
 async function sha256(file: File) {
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer())
@@ -32,6 +44,18 @@ function statusIcon(status: RecipeImportPreviewRow["status"]) {
   if (status === "ready") return <CheckCircle2 size={17} />
   if (status === "blocked") return <XCircle size={17} />
   return <TriangleAlert size={17} />
+}
+
+function makeResolutionDraft(row: RecipeImportPreviewRow): ResolutionDraft {
+  return {
+    yieldRaw: row.yield?.raw || "",
+    ingredientRaw: Object.fromEntries(row.ingredients.map((ingredient) => [ingredient.id, ingredient.rawQuantity])),
+    acceptSourceStatus: row.sourceStatus === "recorded",
+  }
+}
+
+function hasReviewIssue(row: RecipeImportPreviewRow, code: string) {
+  return row.issues.some((issue) => issue.code === code)
 }
 
 export function ImportScreen({
@@ -48,9 +72,13 @@ export function ImportScreen({
   const [report, setReport] = useState<CookbookImportCommitReport | null>(null)
   const [busy, setBusy] = useState(false)
   const [committing, setCommitting] = useState(false)
+  const [recheckingId, setRecheckingId] = useState<string | null>(null)
+  const [importingId, setImportingId] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [expanded, setExpanded] = useState<string | null>(null)
   const [parserMessages, setParserMessages] = useState<string[]>([])
+  const [resolutionDrafts, setResolutionDrafts] = useState<Record<string, ResolutionDraft>>({})
+  const [importedClientIds, setImportedClientIds] = useState<string[]>([])
 
   async function handleFile(file?: File) {
     if (!file) return
@@ -59,6 +87,8 @@ export function ImportScreen({
     setPreview(null)
     setReport(null)
     setParserMessages([])
+    setResolutionDrafts({})
+    setImportedClientIds([])
     setError("")
     setBusy(true)
 
@@ -96,30 +126,132 @@ export function ImportScreen({
     }
   }
 
-  async function importReadyRecipes() {
-    if (!input || !preview) return
-    const readyIds = preview.rows
-      .filter((row) => row.status === "ready")
-      .map((row) => row.clientId)
-
-    if (!readyIds.length) {
-      setError("There are no fully validated recipes ready to import yet.")
-      return
+  function toggleExpanded(row: RecipeImportPreviewRow) {
+    const next = expanded === row.clientId ? null : row.clientId
+    setExpanded(next)
+    if (next && !resolutionDrafts[row.clientId]) {
+      setResolutionDrafts((current) => ({
+        ...current,
+        [row.clientId]: makeResolutionDraft(row),
+      }))
     }
+  }
 
+  function updateResolution(row: RecipeImportPreviewRow, patch: Partial<ResolutionDraft>) {
+    setResolutionDrafts((current) => ({
+      ...current,
+      [row.clientId]: {
+        ...(current[row.clientId] || makeResolutionDraft(row)),
+        ...patch,
+      },
+    }))
+  }
+
+  function updateIngredientResolution(row: RecipeImportPreviewRow, ingredientId: string, raw: string) {
+    const draft = resolutionDrafts[row.clientId] || makeResolutionDraft(row)
+    updateResolution(row, {
+      ingredientRaw: {
+        ...draft.ingredientRaw,
+        [ingredientId]: raw,
+      },
+    })
+  }
+
+  async function recheckRecipe(row: RecipeImportPreviewRow) {
+    if (!input) return
+    const draft = resolutionDrafts[row.clientId] || makeResolutionDraft(row)
+    setRecheckingId(row.clientId)
+    setError("")
+    setReport(null)
+
+    try {
+      const recipes = input.recipes.map((recipe): ParsedRecipeCandidate => {
+        if (recipe.clientId !== row.clientId) return recipe
+
+        const ingredients = recipe.ingredients.map((ingredient) => {
+          const raw = (draft.ingredientRaw[ingredient.id] ?? ingredient.rawQuantity).trim()
+          return {
+            ...ingredient,
+            rawQuantity: raw,
+            quantity: parseQuantity(raw),
+          }
+        })
+
+        const yieldRaw = draft.yieldRaw.trim()
+        const next: ParsedRecipeCandidate = {
+          ...recipe,
+          ingredients,
+          yield: yieldRaw ? parseQuantity(yieldRaw) : null,
+          sourceStatus: draft.acceptSourceStatus ? "recorded" : recipe.sourceStatus,
+          issues: [],
+        }
+
+        return revalidateRecipeCandidate(next)
+      })
+
+      const nextInput = { ...input, recipes }
+      const nextPreview = await previewCookbookImport(nextInput)
+      setInput(nextInput)
+      setPreview(nextPreview)
+
+      const refreshed = nextPreview.rows.find((candidate) => candidate.clientId === row.clientId)
+      if (refreshed) {
+        setResolutionDrafts((current) => ({
+          ...current,
+          [row.clientId]: makeResolutionDraft(refreshed),
+        }))
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to recheck this recipe.")
+    } finally {
+      setRecheckingId(null)
+    }
+  }
+
+  async function commitSelected(selectedClientIds: string[]) {
+    if (!input || !preview || selectedClientIds.length === 0) return
     setCommitting(true)
     setError("")
     setReport(null)
 
     try {
-      const nextReport = await commitCookbookImport(input, readyIds)
+      const nextReport = await commitCookbookImport(input, selectedClientIds)
       setReport(nextReport)
+      setImportedClientIds((current) => [
+        ...new Set([
+          ...current,
+          ...nextReport.results
+            .filter((item) => item.status === "imported" || item.status === "skipped")
+            .map((item) => item.clientId),
+        ]),
+      ])
       await onImported?.()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to import the reviewed recipes.")
+      setError(reason instanceof Error ? reason.message : "Unable to import the reviewed recipe.")
     } finally {
       setCommitting(false)
+      setImportingId(null)
     }
+  }
+
+  async function importReadyRecipes() {
+    if (!preview) return
+    const readyIds = preview.rows
+      .filter((row) => row.status === "ready" && !importedClientIds.includes(row.clientId))
+      .map((row) => row.clientId)
+
+    if (!readyIds.length) {
+      setError("There are no unimported Ready recipes left in this review.")
+      return
+    }
+
+    await commitSelected(readyIds)
+  }
+
+  async function importOne(row: RecipeImportPreviewRow) {
+    if (row.status !== "ready") return
+    setImportingId(row.clientId)
+    await commitSelected([row.clientId])
   }
 
   return (
@@ -128,7 +260,7 @@ export function ImportScreen({
         <div>
           <div className="eyebrow">Document import</div>
           <h1>Import cookbook</h1>
-          <p className="subtitle">Upload the Word cookbook, validate every recipe against Seramet, then import only rows that pass the review gate.</p>
+          <p className="subtitle">Review, correct and recheck recipes individually. Only green rows can enter Seramet.</p>
         </div>
       </div>
 
@@ -145,7 +277,7 @@ export function ImportScreen({
         <p>
           {busy
             ? "Reading headings, ingredient tables, yields and recorded procedures, then matching them to Seramet."
-            : "DOCX only. Previewing never writes to recipes, inventory, menu or costing."}
+            : "DOCX only. Previewing and editing the review never writes to Seramet until you press Import."}
         </p>
         <span className="fake-button">{fileName ? "Replace file" : "Select document"}</span>
       </button>
@@ -154,7 +286,7 @@ export function ImportScreen({
         <div className="import-alert error">
           <XCircle size={18} />
           <div><strong>Cookbook needs attention</strong><span>{error}</span></div>
-          <button type="button" onClick={() => inputRef.current?.click()} aria-label="Choose another file"><RefreshCw size={16} /></button>
+          <button type="button" onClick={() => setError("")} aria-label="Dismiss error"><XCircle size={16} /></button>
         </div>
       )}
 
@@ -163,7 +295,7 @@ export function ImportScreen({
           <section className="import-summary">
             <div><span>Found</span><strong>{preview.recipeCount}</strong><small>recipes</small></div>
             <div className="summary-ready"><span>Ready</span><strong>{preview.readyCount}</strong><small>safe to import</small></div>
-            <div className="summary-review"><span>Review</span><strong>{preview.reviewCount}</strong><small>chef confirmation</small></div>
+            <div className="summary-review"><span>Review</span><strong>{preview.reviewCount}</strong><small>needs resolution</small></div>
             <div className="summary-blocked"><span>Blocked</span><strong>{preview.blockedCount}</strong><small>cannot import</small></div>
           </section>
 
@@ -171,18 +303,18 @@ export function ImportScreen({
             <div>
               <ShieldCheck size={19} />
               <span>
-                <strong>{preview.readyCount} recipe{preview.readyCount === 1 ? "" : "s"} ready</strong>
-                <small>Ready rows are committed atomically. Review and blocked rows remain untouched.</small>
+                <strong>Test one recipe before bulk import</strong>
+                <small>Open a green recipe and use “Import this recipe” first. Bulk import remains available after the single-recipe test succeeds.</small>
               </span>
             </div>
             <button
               type="button"
-              className="primary-button"
+              className="secondary-button"
               disabled={!canImport || preview.readyCount === 0 || committing}
               onClick={() => void importReadyRecipes()}
             >
-              {committing && <LoaderCircle className="spin" size={16} />}
-              {committing ? "Importing…" : `Import ${preview.readyCount} ready`}
+              {committing && !importingId && <LoaderCircle className="spin" size={16} />}
+              Import all Ready
             </button>
             {!canImport && <p>Your Seramet role needs cookbook publish and Cost Control manage permission to commit authoritative recipes.</p>}
           </section>
@@ -194,17 +326,15 @@ export function ImportScreen({
                 <div><span>Skipped</span><strong>{report.skippedCount}</strong></div>
                 <div><span>Failed</span><strong>{report.failedCount}</strong></div>
               </div>
-              {report.results.some((item) => item.status === "failed") && (
-                <div className="issue-list">
-                  {report.results.filter((item) => item.status === "failed").map((item) => (
-                    <div className="issue-line blocked" key={item.clientId}>
-                      <XCircle size={14} />
-                      <span>{item.name}: {item.message || "Import failed."}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <p>Duplicate-safe: uploading the same reviewed document again will skip recipes already committed from the same source fingerprint.</p>
+              <div className="import-result-lines">
+                {report.results.map((item) => (
+                  <div className={"import-result-line " + item.status} key={item.clientId}>
+                    {item.status === "failed" ? <XCircle size={14} /> : <CheckCircle2 size={14} />}
+                    <span><strong>{item.name}</strong>{item.message ? " · " + item.message : ""}</span>
+                  </div>
+                ))}
+              </div>
+              <p>Duplicate-safe: importing the same recipe from the same document fingerprint again returns “skipped” instead of creating another recipe.</p>
             </section>
           )}
 
@@ -218,12 +348,26 @@ export function ImportScreen({
 
             {preview.rows.map((row) => {
               const open = expanded === row.clientId
+              const draft = resolutionDrafts[row.clientId] || makeResolutionDraft(row)
+              const unresolvedIngredients = row.ingredients.filter((ingredient) =>
+                ingredient.quantity.issues.some((issue) => issue.severity !== "info"),
+              )
+              const yieldNeedsEdit =
+                !row.yield ||
+                Boolean(row.yield.issues.some((issue) => issue.severity !== "info")) ||
+                hasReviewIssue(row, "MISSING_YIELD")
+              const sourceStatusNeedsApproval =
+                hasReviewIssue(row, "SOURCE_DRAFT") ||
+                hasReviewIssue(row, "SOURCE_VALIDATE")
+              const hasPreparedMapping = hasReviewIssue(row, "PREPARED_COMPONENT_MAPPING_REQUIRED")
+              const imported = importedClientIds.includes(row.clientId)
+
               return (
                 <div className="import-review-item" key={row.clientId}>
                   <button
                     type="button"
                     className="validation-row import-validation-button"
-                    onClick={() => setExpanded(open ? null : row.clientId)}
+                    onClick={() => toggleExpanded(row)}
                   >
                     <span className={"validation-icon " + row.status}>{statusIcon(row.status)}</span>
                     <span>
@@ -231,7 +375,7 @@ export function ImportScreen({
                       <small>{row.category} · {row.ingredients.length} ingredients · {row.recipeMatch === "new" ? "new Seramet recipe" : row.recipeMatch.replaceAll("-", " ")}</small>
                     </span>
                     <span className="import-row-end">
-                      <em className={row.status + "-text"}>{row.status}</em>
+                      <em className={row.status + "-text"}>{imported ? "imported" : row.status}</em>
                       {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                     </span>
                   </button>
@@ -263,15 +407,107 @@ export function ImportScreen({
                         <div className="issue-line ready"><CheckCircle2 size={14} /><span>All required quantities, units and yield information are structurally ready.</span></div>
                       )}
 
+                      {(yieldNeedsEdit || unresolvedIngredients.length > 0 || sourceStatusNeedsApproval) && (
+                        <section className="review-resolver">
+                          <div className="review-resolver-title">
+                            <PencilLine size={16} />
+                            <div>
+                              <strong>Resolve this recipe</strong>
+                              <span>Corrections stay in this import session until the row passes recheck.</span>
+                            </div>
+                          </div>
+
+                          {yieldNeedsEdit && (
+                            <label className="review-field">
+                              <span>Exact yield / serving</span>
+                              <input
+                                value={draft.yieldRaw}
+                                onChange={(event) => updateResolution(row, { yieldRaw: event.target.value })}
+                                placeholder="e.g. 20 portions, 5 kg, 12 pcs"
+                              />
+                              <small>Enter one exact quantity and supported unit. Do not use ranges or “about”.</small>
+                            </label>
+                          )}
+
+                          {unresolvedIngredients.length > 0 && (
+                            <div className="review-ingredient-editor">
+                              <strong>Ingredient quantities needing confirmation</strong>
+                              {unresolvedIngredients.map((ingredient) => (
+                                <label key={ingredient.id}>
+                                  <span>{ingredient.name}</span>
+                                  <input
+                                    value={draft.ingredientRaw[ingredient.id] ?? ingredient.rawQuantity}
+                                    onChange={(event) => updateIngredientResolution(row, ingredient.id, event.target.value)}
+                                    placeholder="Exact quantity + unit"
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          )}
+
+                          {sourceStatusNeedsApproval && (
+                            <label className="review-approval">
+                              <input
+                                type="checkbox"
+                                checked={draft.acceptSourceStatus}
+                                onChange={(event) => updateResolution(row, { acceptSourceStatus: event.target.checked })}
+                              />
+                              <span>
+                                <strong>Approve source status as recorded</strong>
+                                <small>I have reviewed the cookbook’s draft/validation note for this recipe. This does not override unresolved quantities or prepared-component mappings.</small>
+                              </span>
+                            </label>
+                          )}
+
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={recheckingId === row.clientId}
+                            onClick={() => void recheckRecipe(row)}
+                          >
+                            {recheckingId === row.clientId && <LoaderCircle className="spin" size={15} />}
+                            Recheck recipe
+                          </button>
+                        </section>
+                      )}
+
+                      {hasPreparedMapping && (
+                        <div className="review-governed-note">
+                          <ShieldCheck size={16} />
+                          <div>
+                            <strong>Prepared component needs a sub-recipe link</strong>
+                            <span>This cannot be bypassed with approval. We’ll map it to an existing/imported Seramet recipe so Cost Control consumes the prepared recipe rather than creating it as raw stock.</span>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="ingredient-preview">
-                        {row.ingredients.slice(0, 10).map((ingredient) => (
+                        {row.ingredients.slice(0, 12).map((ingredient) => (
                           <div key={ingredient.id}>
                             <span>{ingredient.name}</span>
                             <strong>{ingredient.rawQuantity}</strong>
                           </div>
                         ))}
-                        {row.ingredients.length > 10 && <small>+ {row.ingredients.length - 10} more ingredients</small>}
+                        {row.ingredients.length > 12 && <small>+ {row.ingredients.length - 12} more ingredients</small>}
                       </div>
+
+                      {row.status === "ready" && (
+                        <div className="single-import-bar">
+                          <div>
+                            <strong>{imported ? "Recipe already tested/imported" : "Ready for single-recipe test"}</strong>
+                            <span>{imported ? "The source fingerprint prevents duplicates." : "This commits only this recipe, its governed version and its components."}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={!canImport || imported || committing}
+                            onClick={() => void importOne(row)}
+                          >
+                            {importingId === row.clientId && <LoaderCircle className="spin" size={15} />}
+                            {imported ? "Imported" : "Import this recipe"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -282,8 +518,8 @@ export function ImportScreen({
           <div className="info-card">
             <ShieldCheck size={18} />
             <div>
-              <strong>Authoritative import boundary</strong>
-              <p>Ready rows create or match Seramet inventory items, non-sellable cookbook menu placeholders, governed recipe versions and cookbook content. Draft, approximate, ranged, missing or unknown quantities remain in review.</p>
+              <strong>Review rules stay enforced</strong>
+              <p>Approving a draft status does not approve missing quantities, ranges, approximate measurements or prepared components. Those require an exact correction or governed sub-recipe mapping.</p>
             </div>
           </div>
         </>
