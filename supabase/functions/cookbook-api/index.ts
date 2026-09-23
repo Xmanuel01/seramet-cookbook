@@ -595,6 +595,183 @@ async function saveContent(
   return refreshed[0]
 }
 
+
+function normalizeLookup(value: unknown) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+}
+
+function importIssue(code: string, message: string, severity: "info" | "review" | "blocked" = "review") {
+  return { code, message, severity }
+}
+
+async function previewImport(context: SerametContext, body: any) {
+  requirePermission(context, "cookbook.manage")
+
+  const fileName = cleanText(body?.fileName, 255)
+  const fileHash = cleanText(body?.fileHash, 128)
+  const importerVersion = cleanText(body?.importerVersion, 80)
+  const recipes = Array.isArray(body?.recipes) ? body.recipes : []
+
+  if (!fileName || !fileHash || !/^[a-f0-9]{64}$/i.test(fileHash) || !importerVersion) {
+    throw Object.assign(new Error("Import file metadata is invalid."), { status: 400 })
+  }
+  if (recipes.length === 0 || recipes.length > 300) {
+    throw Object.assign(new Error("Cookbook preview must contain between 1 and 300 recipes."), { status: 400 })
+  }
+
+  const totalIngredients = recipes.reduce(
+    (sum: number, recipe: any) => sum + (Array.isArray(recipe?.ingredients) ? recipe.ingredients.length : 0),
+    0,
+  )
+  if (totalIngredients > 6000) {
+    throw Object.assign(new Error("Cookbook contains too many ingredient rows for one review batch."), { status: 400 })
+  }
+
+  const [
+    { data: recipeRows, error: recipesError },
+    { data: menuRows, error: menuError },
+    { data: inventoryRows, error: inventoryError },
+    { data: unitRows, error: unitsError },
+  ] = await Promise.all([
+    admin
+      .from("recipes")
+      .select("id,name,menu_item_id,current_version_id")
+      .eq("tenant_id", context.tenantId)
+      .eq("active", 1),
+    admin
+      .from("menu_catalog_items")
+      .select("id,name,recipe_reference")
+      .eq("tenant_id", context.tenantId)
+      .eq("active", 1),
+    admin
+      .from("inventory_items")
+      .select("id,name,code,base_unit_id")
+      .eq("tenant_id", context.tenantId)
+      .eq("active", 1),
+    admin
+      .from("unit_definitions")
+      .select("id,code")
+      .eq("tenant_id", context.tenantId)
+      .eq("active", 1),
+  ])
+
+  if (recipesError) throw recipesError
+  if (menuError) throw menuError
+  if (inventoryError) throw inventoryError
+  if (unitsError) throw unitsError
+
+  const recipeByName = new Map(
+    (recipeRows || [])
+      .filter((row) => normalizeLookup(row.name))
+      .map((row) => [normalizeLookup(row.name), row]),
+  )
+  const menuByName = new Map(
+    (menuRows || [])
+      .filter((row) => normalizeLookup(row.name))
+      .map((row) => [normalizeLookup(row.name), row]),
+  )
+  const inventoryByName = new Map(
+    (inventoryRows || [])
+      .filter((row) => normalizeLookup(row.name))
+      .map((row) => [normalizeLookup(row.name), row]),
+  )
+  const configuredUnits = new Set((unitRows || []).map((row) => String(row.code).toUpperCase()))
+
+  const rows = recipes.map((rawRecipe: any, recipeIndex: number) => {
+    const name = cleanText(rawRecipe?.name, 200) || `Recipe ${recipeIndex + 1}`
+    const category = cleanText(rawRecipe?.category, 120) || "Uncategorised"
+    const key = normalizeLookup(name)
+    const existingRecipe: any = recipeByName.get(key) || null
+    const existingMenu: any = menuByName.get(key) || null
+    const clientIssues = Array.isArray(rawRecipe?.issues)
+      ? rawRecipe.issues.slice(0, 100).map((item: any) => ({
+          code: cleanText(item?.code, 80) || "SOURCE_REVIEW",
+          message: cleanText(item?.message, 500) || "Source requires review.",
+          severity:
+            item?.severity === "blocked" || item?.severity === "info"
+              ? item.severity
+              : "review",
+        }))
+      : []
+
+    const ingredients = Array.isArray(rawRecipe?.ingredients) ? rawRecipe.ingredients.slice(0, 250) : []
+    const ingredientMatches = ingredients.map((ingredient: any, ingredientIndex: number) => {
+      const ingredientName = cleanText(ingredient?.name, 200) || `Ingredient ${ingredientIndex + 1}`
+      const inventory: any = inventoryByName.get(normalizeLookup(ingredientName)) || null
+      const unitCode = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase() || null
+
+      if (unitCode && !configuredUnits.has(unitCode)) {
+        clientIssues.push(importIssue(
+          "UNIT_CREATE_CANDIDATE",
+          `Unit ${unitCode} is not configured in this Seramet tenant yet; it will need mapping or controlled creation before commit.`,
+          "info",
+        ))
+      }
+
+      return {
+        ingredientId: cleanText(ingredient?.id, 100) || `ingredient-${recipeIndex + 1}-${ingredientIndex + 1}`,
+        inventoryItemId: inventory ? String(inventory.id) : null,
+        match: inventory ? "existing" : "create-candidate",
+      }
+    })
+
+    if (existingRecipe) {
+      clientIssues.push(importIssue(
+        "EXISTING_RECIPE_MATCH",
+        "A Seramet recipe with this name already exists. Commit must create a new governed version instead of duplicating it.",
+        "info",
+      ))
+    } else if (existingMenu) {
+      clientIssues.push(importIssue(
+        "EXISTING_MENU_MATCH",
+        "A Seramet menu item with this name exists and can be linked to the imported recipe.",
+        "info",
+      ))
+    }
+
+    const hasBlocked = clientIssues.some((item: any) => item.severity === "blocked")
+    const hasReview = clientIssues.some((item: any) => item.severity === "review")
+
+    return {
+      ...rawRecipe,
+      name,
+      category,
+      issues: clientIssues,
+      status: hasBlocked ? "blocked" : hasReview ? "review" : "ready",
+      recipeId: existingRecipe ? String(existingRecipe.id) : null,
+      menuItemId: existingRecipe
+        ? String(existingRecipe.menu_item_id)
+        : existingMenu
+          ? String(existingMenu.id)
+          : null,
+      recipeMatch: existingRecipe
+        ? "existing-recipe"
+        : existingMenu
+          ? "existing-menu"
+          : "new",
+      ingredientMatches,
+    }
+  })
+
+  return {
+    fileName,
+    fileHash,
+    importerVersion,
+    recipeCount: rows.length,
+    readyCount: rows.filter((row: any) => row.status === "ready").length,
+    reviewCount: rows.filter((row: any) => row.status === "review").length,
+    blockedCount: rows.filter((row: any) => row.status === "blocked").length,
+    rows,
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
   if (req.method !== "POST") return response({ ok: false, error: "Method not allowed" }, 405)
@@ -610,6 +787,10 @@ Deno.serve(async (req: Request) => {
 
     if (action === "listRecipes") {
       return response({ ok: true, data: await loadRecipes(context) })
+    }
+
+    if (action === "previewImport") {
+      return response({ ok: true, data: await previewImport(context, body) })
     }
 
     if (action === "getRecipe") {
