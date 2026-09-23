@@ -4,11 +4,11 @@ import { LoaderCircle, RefreshCw } from "lucide-react"
 import { AppShell } from "./components/AppShell"
 import { defaultCategories, seedRecipes } from "./data/recipes"
 import {
-  ensureCookbookWorkspace,
+  getCookbookProfile,
   loadLocalRecipes,
   loadRemoteRecipes,
   saveLocalRecipe,
-  saveRemoteRecipe,
+  saveRemoteContent,
 } from "./lib/cookbook-repository"
 import { isSupabaseConfigured, supabase } from "./lib/supabase"
 import { AuthScreen } from "./screens/AuthScreen"
@@ -43,7 +43,7 @@ export default function App() {
   )
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
+    if (!isSupabaseConfigured) {
       const localRecipes = loadLocalRecipes()
       setRecipes(localRecipes)
       setSelectedId(localRecipes[0]?.id || "")
@@ -85,8 +85,10 @@ export default function App() {
 
     async function load() {
       try {
-        const nextWorkspace = await ensureCookbookWorkspace(session!.user.id)
-        const remoteRecipes = await loadRemoteRecipes(nextWorkspace.id)
+        const [nextWorkspace, remoteRecipes] = await Promise.all([
+          getCookbookProfile(),
+          loadRemoteRecipes(),
+        ])
         if (!active) return
 
         setWorkspace(nextWorkspace)
@@ -121,6 +123,10 @@ export default function App() {
   }
 
   function startNewRecipe() {
+    if (backendMode === "supabase") {
+      setError("Create or link the recipe in Seramet Cost Control first. The cookbook intentionally does not duplicate Seramet recipe identities.")
+      return
+    }
     setEditingId(null)
     setScreen("editor")
     window.scrollTo({ top: 0, behavior: "smooth" })
@@ -128,6 +134,10 @@ export default function App() {
 
   function startEditRecipe() {
     if (!selectedRecipe) return
+    if (backendMode === "supabase" && !workspace?.canManage) {
+      setError("Your Seramet role can view cookbook recipes but cannot edit cookbook content.")
+      return
+    }
     setEditingId(selectedRecipe.id)
     setScreen("editor")
     window.scrollTo({ top: 0, behavior: "smooth" })
@@ -138,21 +148,20 @@ export default function App() {
     setError("")
 
     try {
+      let saved: Recipe
       if (backendMode === "local") {
         const next = saveLocalRecipe(recipe)
         setRecipes(next)
-        setSelectedId(recipe.id)
+        saved = recipe
       } else {
-        if (!workspace || !session?.user) throw new Error("Your cookbook workspace is not ready.")
-        const saved = await saveRemoteRecipe(workspace.id, session.user.id, recipe)
-        setRecipes((items) => {
-          const exists = items.some((item) => item.id === saved.id || item.id === recipe.id)
-          if (!exists) return [saved, ...items]
-          return items.map((item) => item.id === saved.id || item.id === recipe.id ? saved : item)
-        })
-        setSelectedId(saved.id)
+        if (!workspace?.canManage) throw new Error("Your Seramet role cannot edit cookbook content.")
+        saved = await saveRemoteContent(recipe, Boolean(workspace.canPublish))
+        setRecipes((items) =>
+          items.map((item) => item.id === saved.id ? saved : item),
+        )
       }
 
+      setSelectedId(saved.id)
       setEditingId(null)
       setScreen("detail")
     } catch (reason) {
@@ -163,7 +172,6 @@ export default function App() {
   }
 
   async function signOut() {
-    if (!supabase) return
     await supabase.auth.signOut()
   }
 
@@ -174,7 +182,7 @@ export default function App() {
       <main className="app-loading">
         <div className="loading-mark"><LoaderCircle className="spin" size={24} /></div>
         <strong>Opening cookbook</strong>
-        <span>{isSupabaseConfigured ? "Connecting to your secure workspace…" : "Loading recipes…"}</span>
+        <span>{isSupabaseConfigured ? "Connecting to Seramet…" : "Loading recipes…"}</span>
       </main>
     )
   }
@@ -230,6 +238,7 @@ export default function App() {
           <RecipeEditorScreen
             categories={defaultCategories}
             existing={editingRecipe}
+            coreLocked={backendMode === "supabase"}
             onCancel={() => setScreen(editingRecipe ? "detail" : "recipes")}
             onSave={saveRecipe}
           />
