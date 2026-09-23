@@ -12,8 +12,16 @@ import {
   XCircle,
 } from "lucide-react"
 import { parseCookbookDocx } from "../lib/docx-cookbook-parser"
-import { previewCookbookImport } from "../lib/cookbook-repository"
-import type { CookbookImportPreview, RecipeImportPreviewRow } from "../types"
+import {
+  commitCookbookImport,
+  previewCookbookImport,
+  type CookbookImportInput,
+} from "../lib/cookbook-repository"
+import type {
+  CookbookImportCommitReport,
+  CookbookImportPreview,
+  RecipeImportPreviewRow,
+} from "../types"
 
 async function sha256(file: File) {
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer())
@@ -26,11 +34,20 @@ function statusIcon(status: RecipeImportPreviewRow["status"]) {
   return <TriangleAlert size={17} />
 }
 
-export function ImportScreen() {
+export function ImportScreen({
+  canImport = false,
+  onImported,
+}: {
+  canImport?: boolean
+  onImported?: () => Promise<void> | void
+}) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [fileName, setFileName] = useState("")
+  const [input, setInput] = useState<CookbookImportInput | null>(null)
   const [preview, setPreview] = useState<CookbookImportPreview | null>(null)
+  const [report, setReport] = useState<CookbookImportCommitReport | null>(null)
   const [busy, setBusy] = useState(false)
+  const [committing, setCommitting] = useState(false)
   const [error, setError] = useState("")
   const [expanded, setExpanded] = useState<string | null>(null)
   const [parserMessages, setParserMessages] = useState<string[]>([])
@@ -38,7 +55,9 @@ export function ImportScreen() {
   async function handleFile(file?: File) {
     if (!file) return
     setFileName(file.name)
+    setInput(null)
     setPreview(null)
+    setReport(null)
     setParserMessages([])
     setError("")
     setBusy(true)
@@ -60,12 +79,14 @@ export function ImportScreen() {
         throw new Error("No recipes were found. The importer expects Word Heading 1 categories, Heading 2 recipe names and ingredient tables.")
       }
 
-      const nextPreview = await previewCookbookImport({
+      const nextInput: CookbookImportInput = {
         fileName: file.name,
         fileHash,
         importerVersion: parsed.importerVersion,
         recipes: parsed.recipes,
-      })
+      }
+      const nextPreview = await previewCookbookImport(nextInput)
+      setInput(nextInput)
       setPreview(nextPreview)
       setParserMessages(parsed.messages)
     } catch (reason) {
@@ -75,17 +96,43 @@ export function ImportScreen() {
     }
   }
 
+  async function importReadyRecipes() {
+    if (!input || !preview) return
+    const readyIds = preview.rows
+      .filter((row) => row.status === "ready")
+      .map((row) => row.clientId)
+
+    if (!readyIds.length) {
+      setError("There are no fully validated recipes ready to import yet.")
+      return
+    }
+
+    setCommitting(true)
+    setError("")
+    setReport(null)
+
+    try {
+      const nextReport = await commitCookbookImport(input, readyIds)
+      setReport(nextReport)
+      await onImported?.()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to import the reviewed recipes.")
+    } finally {
+      setCommitting(false)
+    }
+  }
+
   return (
     <main className="content">
       <div className="page-header">
         <div>
           <div className="eyebrow">Document import</div>
           <h1>Import cookbook</h1>
-          <p className="subtitle">Upload the Word cookbook, validate every recipe against Seramet, then resolve review items before any authoritative recipe is created.</p>
+          <p className="subtitle">Upload the Word cookbook, validate every recipe against Seramet, then import only rows that pass the review gate.</p>
         </div>
       </div>
 
-      <button type="button" className="import-drop" disabled={busy} onClick={() => inputRef.current?.click()}>
+      <button type="button" className="import-drop" disabled={busy || committing} onClick={() => inputRef.current?.click()}>
         <input
           ref={inputRef}
           type="file"
@@ -98,7 +145,7 @@ export function ImportScreen() {
         <p>
           {busy
             ? "Reading headings, ingredient tables, yields and recorded procedures, then matching them to Seramet."
-            : "DOCX only. Nothing is written to recipes, inventory or costing during this review step."}
+            : "DOCX only. Previewing never writes to recipes, inventory, menu or costing."}
         </p>
         <span className="fake-button">{fileName ? "Replace file" : "Select document"}</span>
       </button>
@@ -106,7 +153,7 @@ export function ImportScreen() {
       {error && (
         <div className="import-alert error">
           <XCircle size={18} />
-          <div><strong>Import could not be reviewed</strong><span>{error}</span></div>
+          <div><strong>Cookbook needs attention</strong><span>{error}</span></div>
           <button type="button" onClick={() => inputRef.current?.click()} aria-label="Choose another file"><RefreshCw size={16} /></button>
         </div>
       )}
@@ -115,10 +162,51 @@ export function ImportScreen() {
         <>
           <section className="import-summary">
             <div><span>Found</span><strong>{preview.recipeCount}</strong><small>recipes</small></div>
-            <div className="summary-ready"><span>Ready</span><strong>{preview.readyCount}</strong><small>structured</small></div>
-            <div className="summary-review"><span>Review</span><strong>{preview.reviewCount}</strong><small>needs confirmation</small></div>
-            <div className="summary-blocked"><span>Blocked</span><strong>{preview.blockedCount}</strong><small>cannot commit</small></div>
+            <div className="summary-ready"><span>Ready</span><strong>{preview.readyCount}</strong><small>safe to import</small></div>
+            <div className="summary-review"><span>Review</span><strong>{preview.reviewCount}</strong><small>chef confirmation</small></div>
+            <div className="summary-blocked"><span>Blocked</span><strong>{preview.blockedCount}</strong><small>cannot import</small></div>
           </section>
+
+          <section className="import-commit-card">
+            <div>
+              <ShieldCheck size={19} />
+              <span>
+                <strong>{preview.readyCount} recipe{preview.readyCount === 1 ? "" : "s"} ready</strong>
+                <small>Ready rows are committed atomically. Review and blocked rows remain untouched.</small>
+              </span>
+            </div>
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!canImport || preview.readyCount === 0 || committing}
+              onClick={() => void importReadyRecipes()}
+            >
+              {committing && <LoaderCircle className="spin" size={16} />}
+              {committing ? "Importing…" : `Import ${preview.readyCount} ready`}
+            </button>
+            {!canImport && <p>Your Seramet role needs cookbook publish and Cost Control manage permission to commit authoritative recipes.</p>}
+          </section>
+
+          {report && (
+            <section className="import-report">
+              <div className="import-report-summary">
+                <div><span>Imported</span><strong>{report.importedCount}</strong></div>
+                <div><span>Skipped</span><strong>{report.skippedCount}</strong></div>
+                <div><span>Failed</span><strong>{report.failedCount}</strong></div>
+              </div>
+              {report.results.some((item) => item.status === "failed") && (
+                <div className="issue-list">
+                  {report.results.filter((item) => item.status === "failed").map((item) => (
+                    <div className="issue-line blocked" key={item.clientId}>
+                      <XCircle size={14} />
+                      <span>{item.name}: {item.message || "Import failed."}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p>Duplicate-safe: uploading the same reviewed document again will skip recipes already committed from the same source fingerprint.</p>
+            </section>
+          )}
 
           <section className="list-panel import-review">
             <div className="panel-title">
@@ -167,7 +255,7 @@ export function ImportScreen() {
                           ))}
                         </div>
                       ) : (
-                        <div className="issue-line ready"><CheckCircle2 size={14} /><span>Structure is complete enough for the next commit/mapping stage.</span></div>
+                        <div className="issue-line ready"><CheckCircle2 size={14} /><span>All required quantities, units and yield information are structurally ready.</span></div>
                       )}
 
                       <div className="ingredient-preview">
@@ -189,8 +277,8 @@ export function ImportScreen() {
           <div className="info-card">
             <ShieldCheck size={18} />
             <div>
-              <strong>Review gate is active</strong>
-              <p>Ready means the Word structure is usable. Review/blocked rows are not written to Seramet. The next commit stage will also require unit and inventory mapping before recipes become authoritative.</p>
+              <strong>Authoritative import boundary</strong>
+              <p>Ready rows create or match Seramet inventory items, non-sellable cookbook menu placeholders, governed recipe versions and cookbook content. Draft, approximate, ranged, missing or unknown quantities remain in review.</p>
             </div>
           </div>
         </>
