@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react"
-import { ArrowLeft, BookOpenText, LoaderCircle, LockKeyhole, Mail, ShieldCheck } from "lucide-react"
+import { ArrowLeft, BookOpenText, KeyRound, LoaderCircle, LockKeyhole, Mail, ShieldCheck } from "lucide-react"
 import { Brand } from "../components/Brand"
 import { supabase } from "../lib/supabase"
 import { activateRootTestSession } from "../lib/root-test"
