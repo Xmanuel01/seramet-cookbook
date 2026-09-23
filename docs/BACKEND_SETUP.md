@@ -1,39 +1,59 @@
-# Backend setup
+# Shared Seramet backend
 
-The application now supports two modes:
+Seramet Cookbook uses the existing **Seramet staging** Supabase project rather than owning a second restaurant database.
 
-1. **Local mode** — active when no Supabase environment variables are present. Recipes persist in the browser with localStorage.
-2. **Supabase mode** — active when both `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are configured.
+## Source of truth
 
-## Supabase project
+Seramet remains authoritative for:
 
-No Supabase project is currently connected to the development session, so the database schema has intentionally **not** been applied to a live project.
+- restaurant/tenant identity
+- users, roles and branch scope
+- menu items
+- recipe identities
+- recipe versions and yield
+- inventory ingredients and units
+- theoretical food cost and production links
 
-When a project is connected:
+The cookbook adds only the kitchen presentation layer linked to an existing Seramet recipe version:
 
-1. Review `database/schema.sql`.
-2. Apply it through the Supabase migration workflow.
-3. Run Supabase security and performance advisors.
-4. Generate TypeScript database types and commit them.
-5. Add the project URL and publishable key to the deployment environment.
-6. Test sign-up, sign-in, first-workspace bootstrap, recipe create, recipe edit and recipe history.
+- preparation time
+- cooking time
+- portion display label
+- method steps
+- chef/kitchen notes
+- recipe image/media
+- source-document metadata
+- append-only cookbook content revisions
 
-## Security decisions
+The canonical schema extension lives in `Xmanuel01/seramet-connect` as migration
+`0021_cookbook_shared_backend.sql`.
 
-- Only the browser-safe publishable key belongs in the frontend.
-- No service-role or secret key is used by the application.
-- Every exposed cookbook table has Row Level Security enabled.
-- Table privileges are explicitly granted to `authenticated` because new Supabase projects no longer automatically expose newly-created public tables to the Data API.
-- Workspace membership is checked in recipe/category/ingredient/step/version policies.
-- Authorization does not use user-editable user metadata.
+## Browser access
 
-## Seramet integration fields
+The web app uses only the browser-safe Supabase publishable key.
 
-The schema already reserves:
+It does **not** query Seramet core tables directly. Calls go through the authenticated
+`cookbook-api` Edge Function. That function:
 
-- `cookbook_workspaces.seramet_tenant_id`
-- `recipes.seramet_item_id`
-- `recipes.seramet_branch_id`
-- `recipe_ingredients.seramet_inventory_item_id`
+1. validates the Supabase user session;
+2. resolves the user through Seramet `identity_accounts`;
+3. resolves the Seramet tenant, roles, permissions and branch scope;
+4. requires `cookbook.view`, `cookbook.manage` or `cookbook.publish` as appropriate;
+5. reads authoritative Seramet recipe/version/component records server-side;
+6. writes only append-only cookbook content revisions.
 
-These fields let the cookbook become a Seramet module later without forcing kitchen staff to use the full ERP interface.
+Secret/service credentials never ship to the browser.
+
+## Local development
+
+By default the repository points to the shared Seramet staging Auth project. Set
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to override the target.
+
+The local recipe fallback remains available for development code paths, but production
+must use the shared authenticated backend.
+
+## Core-edit boundary
+
+In shared mode the cookbook intentionally does not edit recipe identity, ingredient
+quantity, inventory mapping, yield or costing. Those fields are shown read-only and are
+managed in Seramet Cost Control. This avoids creating a second source of truth.
