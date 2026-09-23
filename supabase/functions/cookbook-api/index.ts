@@ -854,7 +854,7 @@ async function commitImport(context: SerametContext, body: any) {
     { data: recipeRows, error: recipeError },
   ] = await Promise.all([
     admin.from("tenants").select("default_currency").eq("id", context.tenantId).single(),
-    admin.from("unit_definitions").select("id,code").eq("tenant_id", context.tenantId).eq("active", 1),
+    admin.from("unit_definitions").select("id,code,dimension").eq("tenant_id", context.tenantId).eq("active", 1),
     admin.from("inventory_items").select("id,name,sku,base_unit_id").eq("tenant_id", context.tenantId).eq("active", 1),
     admin.from("menu_catalog_items").select("id,name,code,recipe_reference").eq("tenant_id", context.tenantId).eq("active", 1),
     admin.from("recipes").select("id,name,menu_item_id,active").eq("tenant_id", context.tenantId),
@@ -867,6 +867,7 @@ async function commitImport(context: SerametContext, body: any) {
   if (recipeError) throw recipeError
 
   const unitByCode = new Map((unitRows || []).map((row: any) => [String(row.code).toUpperCase(), String(row.id)]))
+  const unitCodeById = new Map((unitRows || []).map((row: any) => [String(row.id), String(row.code).toUpperCase()]))
   const inventoryByName = new Map((inventoryRows || []).map((row: any) => [normalizeLookup(row.name), row]))
   const menuByName = new Map((menuRows || []).map((row: any) => [normalizeLookup(row.name), row]))
   const recipeByName = new Map((recipeRows || []).filter((row: any) => Number(row.active) === 1).map((row: any) => [normalizeLookup(row.name), row]))
@@ -885,6 +886,13 @@ async function commitImport(context: SerametContext, body: any) {
 
   for (const row of selectedRows as any[]) {
     try {
+      const rowUnitByCode = new Map(unitByCode)
+      const rowUnitCodeById = new Map(unitCodeById)
+      const rowInventoryByName = new Map(inventoryByName)
+      const rowMenuByName = new Map(menuByName)
+      const rowRecipeByName = new Map(recipeByName)
+      const rowRecipeByMenu = new Map(recipeByMenu)
+
       const yieldValue = row?.yield?.value
       const yieldCode = cleanText(row?.yield?.unitCode, 40)?.toUpperCase()
       if (!yieldCode || !importUnitDefinitions[yieldCode]) {
@@ -902,12 +910,13 @@ async function commitImport(context: SerametContext, body: any) {
 
       const unitPayload: any[] = []
       for (const code of requiredUnitCodes) {
-        let id = unitByCode.get(code)
+        let id = rowUnitByCode.get(code)
         if (!id) {
           id = `unit-cookbook-${crypto.randomUUID()}`
           const definition = importUnitDefinitions[code]
           unitPayload.push({ id, code, ...definition, create: true })
-          unitByCode.set(code, id)
+          rowUnitByCode.set(code, id)
+          rowUnitCodeById.set(id, code)
         } else {
           const definition = importUnitDefinitions[code]
           unitPayload.push({ id, code, ...definition, create: false })
@@ -922,10 +931,32 @@ async function commitImport(context: SerametContext, body: any) {
         const value = ingredient?.quantity?.value
         const code = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase()
         if (!name || !code) throw new Error(`Ingredient structure for ${row.name} is incomplete.`)
-        const unitId = unitByCode.get(code)
+        const unitId = rowUnitByCode.get(code)
         if (!unitId) throw new Error(`Unit ${code} was not resolved.`)
 
-        let inventory: any = inventoryByName.get(normalizeLookup(name)) || null
+        let inventory: any = rowInventoryByName.get(normalizeLookup(name)) || null
+        if (inventory) {
+          const baseUnitId = inventory.base_unit_id ? String(inventory.base_unit_id) : null
+          if (!baseUnitId) {
+            throw new Error(`Existing inventory item “${name}” has no base unit configured in Seramet.`)
+          }
+          if (baseUnitId !== unitId) {
+            const baseCode = rowUnitCodeById.get(baseUnitId)
+            const baseDefinition = baseCode ? importUnitDefinitions[baseCode] : undefined
+            const incomingDefinition = importUnitDefinitions[code]
+            const safelyConvertible = Boolean(
+              baseDefinition &&
+              incomingDefinition &&
+              baseDefinition.dimension === incomingDefinition.dimension &&
+              baseDefinition.dimension !== "OTHER"
+            )
+            if (!safelyConvertible) {
+              throw new Error(
+                `Inventory item “${name}” is configured in ${baseCode || "another unit"} and cannot safely accept ${code} without an explicit Seramet conversion.`
+              )
+            }
+          }
+        }
         if (!inventory) {
           const token = crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()
           inventory = {
@@ -935,7 +966,7 @@ async function commitImport(context: SerametContext, body: any) {
             name,
             base_unit_id: unitId,
           }
-          inventoryByName.set(normalizeLookup(name), inventory)
+          rowInventoryByName.set(normalizeLookup(name), inventory)
           inventoryPayload.push({
             id: inventory.id,
             sku: inventory.sku,
@@ -957,10 +988,10 @@ async function commitImport(context: SerametContext, body: any) {
       }
 
       const rowKey = normalizeLookup(row.name)
-      let menu: any = menuByName.get(rowKey) || null
-      let recipe: any = recipeByName.get(rowKey) || null
+      let menu: any = rowMenuByName.get(rowKey) || null
+      let recipe: any = rowRecipeByName.get(rowKey) || null
 
-      if (!recipe && menu) recipe = recipeByMenu.get(String(menu.id)) || null
+      if (!recipe && menu) recipe = rowRecipeByMenu.get(String(menu.id)) || null
 
       const menuCreate = !menu
       if (!menu) {
@@ -970,7 +1001,7 @@ async function commitImport(context: SerametContext, body: any) {
           code: `CB-${token}`,
           name: row.name,
         }
-        menuByName.set(rowKey, menu)
+        rowMenuByName.set(rowKey, menu)
       }
 
       const recipeCreate = !recipe
@@ -981,8 +1012,8 @@ async function commitImport(context: SerametContext, body: any) {
           menu_item_id: menu.id,
           active: 1,
         }
-        recipeByName.set(rowKey, recipe)
-        recipeByMenu.set(String(menu.id), recipe)
+        rowRecipeByName.set(rowKey, recipe)
+        rowRecipeByMenu.set(String(menu.id), recipe)
       }
 
       const sourceReference = `cookbook:${preview.fileHash}:${rowKey}`
@@ -1011,7 +1042,7 @@ async function commitImport(context: SerametContext, body: any) {
         version: {
           id: versionId,
           yieldQuantityMicro: microQuantity(yieldValue),
-          yieldUnitId: unitByCode.get(yieldCode),
+          yieldUnitId: rowUnitByCode.get(yieldCode),
         },
         components,
         content: {
@@ -1035,6 +1066,29 @@ async function commitImport(context: SerametContext, body: any) {
       if (error) throw error
 
       const committed = data as any
+      if (committed?.status !== "skipped") {
+        for (const unit of unitPayload) {
+          if (unit.create) {
+            unitByCode.set(String(unit.code), String(unit.id))
+            unitCodeById.set(String(unit.id), String(unit.code))
+          }
+        }
+        for (const item of inventoryPayload) {
+          if (item.create) {
+            inventoryByName.set(normalizeLookup(item.name), {
+              id: item.id,
+              name: item.name,
+              sku: item.sku,
+              base_unit_id: item.unitId,
+            })
+          }
+        }
+        if (menuCreate) menuByName.set(rowKey, menu)
+        if (recipeCreate) {
+          recipeByName.set(rowKey, recipe)
+          recipeByMenu.set(String(menu.id), recipe)
+        }
+      }
       results.push({
         clientId: String(row.clientId),
         name: row.name,
