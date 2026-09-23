@@ -238,7 +238,7 @@ function sourceStatus(meta: string[], notes: string[]) {
   return "recorded" as const
 }
 
-function finalizeRecipe(recipe: ParsedRecipeCandidate) {
+export function revalidateRecipeCandidate(recipe: ParsedRecipeCandidate) {
   const issues: ImportIssue[] = []
   if (!recipe.ingredients.length) {
     issues.push(issue("NO_INGREDIENTS", "No ingredient table was found for this recipe.", "blocked"))
@@ -309,7 +309,7 @@ export async function parseCookbookDocx(file: File): Promise<{
 
   function commit() {
     if (!current) return
-    recipes.push(finalizeRecipe(current))
+    recipes.push(revalidateRecipeCandidate(current))
     current = null
     methodMode = false
   }
@@ -391,7 +391,7 @@ export async function parseCookbookDocx(file: File): Promise<{
   for (const recipe of recipes) {
     recipe.yield = parseYield(recipe.meta, recipe.category)
     recipe.sourceStatus = sourceStatus(recipe.meta, recipe.kitchenNotes)
-    finalizeRecipe(recipe)
+    revalidateRecipeCandidate(recipe)
   }
 
   const messages = result.messages.map((message) => clean(message.message)).filter(Boolean)
