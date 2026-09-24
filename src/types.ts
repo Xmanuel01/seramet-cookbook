@@ -2,6 +2,13 @@ export type Ingredient = {
   id: string
   name: string
   quantity: string
+  quantityValue?: number
+  unitId?: string | null
+  unitCode?: string | null
+  unitLabel?: string | null
+  unitDimension?: "MASS" | "VOLUME" | "COUNT" | "OTHER" | null
+  unitScaleNumerator?: number
+  unitScaleDenominator?: number
 }
 
 export type Recipe = {
@@ -11,6 +18,13 @@ export type Recipe = {
   description: string
   portions: number
   portionSize: string
+  yieldQuantity?: number
+  yieldUnitId?: string | null
+  yieldUnitCode?: string | null
+  yieldUnitLabel?: string | null
+  yieldUnitDimension?: "MASS" | "VOLUME" | "COUNT" | "OTHER" | null
+  yieldUnitScaleNumerator?: number
+  yieldUnitScaleDenominator?: number
   prepMinutes: number
   cookMinutes: number
   image: string
@@ -55,6 +69,7 @@ export type ParsedQuantity = {
   unitLabel?: string
   notes?: string
   approximate?: boolean
+  inferred?: boolean
   issues: ImportIssue[]
 }
 
@@ -103,6 +118,17 @@ export type CookbookImportPreview = {
   rows: RecipeImportPreviewRow[]
 }
 
+export type CookbookImportVerification = {
+  verified: boolean
+  menuItem: boolean
+  recipe: boolean
+  version: boolean
+  componentCount: number
+  cookbookContent: boolean
+  auditEvent: boolean
+  recalculationEvent: boolean
+}
+
 export type CookbookImportCommitResult = {
   clientId: string
   name: string
@@ -110,6 +136,7 @@ export type CookbookImportCommitResult = {
   recipeId?: string
   recipeVersionId?: string
   message?: string
+  verification?: CookbookImportVerification
 }
 
 export type CookbookImportCommitReport = {

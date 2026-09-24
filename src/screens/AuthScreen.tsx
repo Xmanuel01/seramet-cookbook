@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react"
-import { ArrowLeft, BookOpenText, LoaderCircle, LockKeyhole, Mail, ShieldCheck } from "lucide-react"
+import { ArrowLeft, BookOpenText, KeyRound, LoaderCircle, LockKeyhole, Mail, ShieldCheck } from "lucide-react"
 import { Brand } from "../components/Brand"
 import { supabase } from "../lib/supabase"
+import { activateRootTestSession } from "../lib/root-test"
 
 export function AuthScreen() {
   const [mode, setMode] = useState<"signin" | "forgot">("signin")
@@ -10,6 +11,8 @@ export function AuthScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [message, setMessage] = useState("")
+  const [testPasscode, setTestPasscode] = useState("")
+  const [testBusy, setTestBusy] = useState(false)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -29,6 +32,21 @@ export function AuthScreen() {
       setError(reason instanceof Error ? reason.message : "Unable to authenticate.")
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function useRootTestAccess(event: FormEvent) {
+    event.preventDefault()
+    setTestBusy(true)
+    setError("")
+    setMessage("")
+    try {
+      await activateRootTestSession(testPasscode)
+      window.location.reload()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Temporary root access failed.")
+    } finally {
+      setTestBusy(false)
     }
   }
 
@@ -123,6 +141,34 @@ export function AuthScreen() {
                 <p>The Cookbook uses your full Seramet account identity. The 4/6-digit employee PIN is restricted to branch-bound POS devices.</p>
               </div>
             </div>
+
+            <div className="auth-divider"><span>Temporary test access</span></div>
+
+            <form className="auth-form" onSubmit={useRootTestAccess}>
+              <label className="auth-field">
+                <span>Root test passcode</span>
+                <div>
+                  <KeyRound size={16} />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    required
+                    value={testPasscode}
+                    onChange={(event) => setTestPasscode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="6-digit test code"
+                  />
+                </div>
+              </label>
+
+              <button type="submit" className="secondary-button auth-submit" disabled={testBusy}>
+                {testBusy && <LoaderCircle className="spin" size={16} />}
+                Enter test workspace
+              </button>
+              <p className="auth-test-note">Preview only. This temporary route expires automatically and is not enabled on the production Cookbook.</p>
+            </form>
           </>
         ) : (
           <>

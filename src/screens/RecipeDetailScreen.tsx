@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ArrowLeft, Clock3, Pencil, Scale, UsersRound } from "lucide-react"
 import type { Recipe } from "../types"
+import { BatchScaler } from "../components/BatchScaler"
 
 type DetailTab = "ingredients" | "method" | "notes"
 
@@ -78,13 +79,7 @@ export function RecipeDetailScreen({
 
           {tab === "ingredients" && (
             <div className="tab-panel">
-              {recipe.ingredients.map((ingredient, index) => (
-                <div className="ingredient-row" key={ingredient.id}>
-                  <span className="row-index">{index + 1}</span>
-                  <span>{ingredient.name}</span>
-                  <strong>{ingredient.quantity}</strong>
-                </div>
-              ))}
+              <BatchScaler recipe={recipe} />
             </div>
           )}
 

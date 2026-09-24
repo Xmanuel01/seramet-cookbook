@@ -6,7 +6,7 @@ import type {
   ParsedRecipeCandidate,
 } from "../types"
 
-const IMPORTER_VERSION = "docx-semantic-v1"
+const IMPORTER_VERSION = "docx-semantic-v3"
 
 const UNIT_ALIASES: Record<string, { code: string; label: string }> = {
   g: { code: "G", label: "g" },
@@ -92,6 +92,10 @@ const QUALITATIVE = [
 const SKIP_CATEGORIES = new Set([
   "document control",
   "contents & coverage",
+])
+
+const SINGLE_SERVE_CATEGORIES = new Set([
+  "breakfast",
 ])
 
 const unicodeFractions: Record<string, number> = {
@@ -189,6 +193,12 @@ export function parseQuantity(rawValue: string): ParsedQuantity {
   if (/draft|validate|confirm/i.test(notes)) {
     issues.push(issue("SOURCE_REVIEW_NOTE", `Source note “${notes}” requires review.`))
   }
+  if (/\b(as needed|as required|for frying|for deep frying|to taste|enough to|until covered)\b/i.test(notes)) {
+    issues.push(issue(
+      "UNQUANTIFIED_USAGE_NOTE",
+      `Quantity “${raw}” includes an additional unquantified amount and needs one exact costing quantity.`,
+    ))
+  }
   if (approximate) {
     issues.push(issue("APPROXIMATE_QUANTITY", `Approximate quantity “${raw}” requires confirmation before authoritative import.`))
   }
@@ -204,9 +214,18 @@ export function parseQuantity(rawValue: string): ParsedQuantity {
   }
 }
 
-function parseYield(meta: string[]): ParsedQuantity | null {
+function parseYield(meta: string[], category: string): ParsedQuantity | null {
   const preferred = meta.find((line) => /recorded yield|menu serving|recorded batch|production batch|draft batch|draft serving|menu assembly/i.test(line))
-  if (!preferred) return null
+  if (!preferred) {
+    if (SINGLE_SERVE_CATEGORIES.has(category.toLowerCase())) {
+      return {
+        ...parseQuantity("1 portion"),
+        raw: "1 serving (menu item)",
+        inferred: true,
+      }
+    }
+    return null
+  }
   const serves = preferred.match(/menu assembly:\s*serves\s*(\d+(?:\.\d+)?)/i)
   if (serves) return parseQuantity(`${serves[1]} portions`)
   const colon = preferred.indexOf(":")
@@ -225,7 +244,7 @@ function sourceStatus(meta: string[], notes: string[]) {
   return "recorded" as const
 }
 
-function finalizeRecipe(recipe: ParsedRecipeCandidate) {
+export function revalidateRecipeCandidate(recipe: ParsedRecipeCandidate) {
   const issues: ImportIssue[] = []
   if (!recipe.ingredients.length) {
     issues.push(issue("NO_INGREDIENTS", "No ingredient table was found for this recipe.", "blocked"))
@@ -234,6 +253,13 @@ function finalizeRecipe(recipe: ParsedRecipeCandidate) {
     issues.push(issue("MISSING_YIELD", "The source does not state a recipe yield or serving quantity."))
   } else {
     issues.push(...recipe.yield.issues.filter((item) => item.severity !== "info"))
+    if (recipe.yield.inferred) {
+      issues.push(issue(
+        "INFERRED_SINGLE_SERVING",
+        "This menu-service recipe has no batch yield in the source, so Seramet will treat one listed recipe as one serving.",
+        "info",
+      ))
+    }
   }
 
   const unresolvedIngredients = recipe.ingredients.filter((ingredient) =>
@@ -289,7 +315,7 @@ export async function parseCookbookDocx(file: File): Promise<{
 
   function commit() {
     if (!current) return
-    recipes.push(finalizeRecipe(current))
+    recipes.push(revalidateRecipeCandidate(current))
     current = null
     methodMode = false
   }
@@ -369,9 +395,9 @@ export async function parseCookbookDocx(file: File): Promise<{
   commit()
 
   for (const recipe of recipes) {
-    recipe.yield = parseYield(recipe.meta)
+    recipe.yield = parseYield(recipe.meta, recipe.category)
     recipe.sourceStatus = sourceStatus(recipe.meta, recipe.kitchenNotes)
-    finalizeRecipe(recipe)
+    revalidateRecipeCandidate(recipe)
   }
 
   const messages = result.messages.map((message) => clean(message.message)).filter(Boolean)

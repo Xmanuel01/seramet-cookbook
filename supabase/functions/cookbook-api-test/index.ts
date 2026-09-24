@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-cookbook-test-passcode",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
@@ -237,6 +237,180 @@ async function authenticate(req: Request): Promise<SerametContext> {
     roleCodes,
     permissions,
     branches: branchRows,
+  }
+}
+
+
+const ROOT_TEST_PASSCODE = "123456"
+const ROOT_TEST_EXPIRES_AT = Date.parse("2026-09-30T20:59:59Z")
+const ROOT_TEST_ALLOWED_ORIGIN = "https://seramet-cookbook-git-test-root-passc-b1ba5a-xmanuel01s-projects.vercel.app"
+
+async function authenticateTestRequest(req: Request): Promise<SerametContext> {
+  const passcode = req.headers.get("x-cookbook-test-passcode")?.trim() || ""
+  if (!passcode) return authenticate(req)
+
+  if (Date.now() > ROOT_TEST_EXPIRES_AT) {
+    throw Object.assign(new Error("Temporary root test access has expired."), { status: 401 })
+  }
+  if (passcode !== ROOT_TEST_PASSCODE) {
+    throw Object.assign(new Error("Temporary root passcode is invalid."), { status: 401 })
+  }
+
+  const origin = req.headers.get("origin") || ""
+  if (origin !== ROOT_TEST_ALLOWED_ORIGIN) {
+    throw Object.assign(new Error("Temporary root access is restricted to the Vercel preview deployment."), { status: 403 })
+  }
+
+  return resolveRootTestContext()
+}
+
+async function resolveRootTestContext(): Promise<SerametContext> {
+  const requiredPermissions = new Set([
+    "cookbook.view",
+    "cookbook.manage",
+    "cookbook.publish",
+    "costcontrol.manage",
+  ])
+
+  const { data: requiredRows, error: requiredError } = await admin
+    .from("role_permissions")
+    .select("tenant_id,role_id,permission_code")
+    .in("permission_code", [...requiredPermissions])
+  if (requiredError) throw requiredError
+
+  const candidateRoleIds = [...new Set((requiredRows || []).map((row) => String(row.role_id)))]
+  if (!candidateRoleIds.length) {
+    throw Object.assign(new Error("No Seramet role is configured for cookbook root testing."), { status: 503 })
+  }
+
+  const { data: roleLinks, error: linksError } = await admin
+    .from("user_roles")
+    .select("tenant_id,user_id,role_id")
+    .in("role_id", candidateRoleIds)
+  if (linksError) throw linksError
+
+  const permissionByRole = new Map<string, Set<string>>()
+  for (const row of requiredRows || []) {
+    const key = `${row.tenant_id}:${row.role_id}`
+    const set = permissionByRole.get(key) || new Set<string>()
+    set.add(String(row.permission_code))
+    permissionByRole.set(key, set)
+  }
+
+  const userRoleMap = new Map<string, string[]>()
+  for (const link of roleLinks || []) {
+    const key = `${link.tenant_id}:${link.user_id}`
+    const list = userRoleMap.get(key) || []
+    list.push(String(link.role_id))
+    userRoleMap.set(key, list)
+  }
+
+  const candidateKeys = [...userRoleMap.keys()]
+  const candidateUserIds = [...new Set(candidateKeys.map((key) => key.split(":").slice(1).join(":")))]
+  const { data: users, error: usersError } = await admin
+    .from("users")
+    .select("tenant_id,id,name,active,employment_status")
+    .in("id", candidateUserIds)
+  if (usersError) throw usersError
+
+  let selected: any = null
+  for (const user of users || []) {
+    if (Number(user.active) !== 1 || user.employment_status === "TERMINATED") continue
+    const key = `${user.tenant_id}:${user.id}`
+    const roleIds = userRoleMap.get(key) || []
+    const permissionSet = new Set<string>()
+    for (const roleId of roleIds) {
+      const rolePermissions = permissionByRole.get(`${user.tenant_id}:${roleId}`)
+      for (const permission of rolePermissions || []) permissionSet.add(permission)
+    }
+    if ([...requiredPermissions].every((permission) => permissionSet.has(permission))) {
+      selected = { ...user, roleIds }
+      break
+    }
+  }
+
+  if (!selected) {
+    throw Object.assign(new Error("No active Seramet user has the permissions required for cookbook root testing."), { status: 503 })
+  }
+
+  const [{ data: roles, error: rolesError }, { data: allPermissionRows, error: allPermissionsError }] =
+    await Promise.all([
+      admin
+        .from("roles")
+        .select("id,code,active")
+        .eq("tenant_id", selected.tenant_id)
+        .in("id", selected.roleIds),
+      admin
+        .from("role_permissions")
+        .select("role_id,permission_code")
+        .eq("tenant_id", selected.tenant_id)
+        .in("role_id", selected.roleIds),
+    ])
+
+  if (rolesError) throw rolesError
+  if (allPermissionsError) throw allPermissionsError
+
+  const activeRoleIds = new Set(
+    (roles || []).filter((role) => Number(role.active) === 1).map((role) => String(role.id)),
+  )
+  const roleCodes = (roles || [])
+    .filter((role) => activeRoleIds.has(String(role.id)))
+    .map((role) => String(role.code))
+  const permissions = [
+    ...new Set(
+      (allPermissionRows || [])
+        .filter((row) => activeRoleIds.has(String(row.role_id)))
+        .map((row) => String(row.permission_code)),
+    ),
+  ]
+
+  let branches: Array<{ id: string; name: string; code: string }> = []
+  if (permissions.includes("scope.branches.all")) {
+    const { data, error } = await admin
+      .from("branches")
+      .select("id,name,code")
+      .eq("tenant_id", selected.tenant_id)
+      .eq("active", 1)
+      .order("name")
+    if (error) throw error
+    branches = (data || []).map((branch) => ({
+      id: String(branch.id),
+      name: String(branch.name),
+      code: String(branch.code),
+    }))
+  } else {
+    const { data: assignments, error: assignmentsError } = await admin
+      .from("user_branches")
+      .select("branch_id")
+      .eq("tenant_id", selected.tenant_id)
+      .eq("user_id", selected.id)
+    if (assignmentsError) throw assignmentsError
+    const branchIds = [...new Set((assignments || []).map((row) => String(row.branch_id)))]
+    if (branchIds.length) {
+      const { data, error } = await admin
+        .from("branches")
+        .select("id,name,code")
+        .eq("tenant_id", selected.tenant_id)
+        .eq("active", 1)
+        .in("id", branchIds)
+        .order("name")
+      if (error) throw error
+      branches = (data || []).map((branch) => ({
+        id: String(branch.id),
+        name: String(branch.name),
+        code: String(branch.code),
+      }))
+    }
+  }
+
+  return {
+    tenantId: String(selected.tenant_id),
+    userId: String(selected.id),
+    email: null,
+    name: `${selected.name} · Root test`,
+    roleCodes,
+    permissions,
+    branches,
   }
 }
 
@@ -719,20 +893,25 @@ async function previewImport(context: SerametContext, body: any) {
       : []
 
     const ingredients = Array.isArray(rawRecipe?.ingredients) ? rawRecipe.ingredients.slice(0, 250) : []
+    const missingUnitCodes = new Set<string>()
     const ingredientMatches = ingredients.map((ingredient: any, ingredientIndex: number) => {
       const ingredientName = cleanText(ingredient?.name, 200) || `Ingredient ${ingredientIndex + 1}`
       const inventory: any = inventoryByName.get(normalizeLookup(ingredientName)) || null
       const unitCode = cleanText(ingredient?.quantity?.unitCode, 40)?.toUpperCase() || null
 
       if (unitCode && !configuredUnits.has(unitCode)) {
-        clientIssues.push(importIssue(
-          "UNIT_CREATE_CANDIDATE",
-          `Unit ${unitCode} is not configured in this Seramet tenant yet; it will be created from the controlled cookbook unit registry on commit.`,
-          "info",
-        ))
+        missingUnitCodes.add(unitCode)
       }
 
-      if (unitCode === "PORTION" || /production recipe/i.test(ingredientName)) {
+      const quantityNotes = cleanText(ingredient?.quantity?.notes, 200) || ""
+      const rawQuantity = cleanText(ingredient?.rawQuantity, 200) || ""
+      const isPreparedComponent =
+        unitCode === "PORTION" ||
+        /production recipe/i.test(ingredientName) ||
+        /\bprepared\b/i.test(quantityNotes) ||
+        /\bprepared\b/i.test(rawQuantity)
+
+      if (isPreparedComponent) {
         clientIssues.push(importIssue(
           "PREPARED_COMPONENT_MAPPING_REQUIRED",
           `Prepared component “${ingredientName}” must be linked to a governed Seramet sub-recipe before this recipe can be imported.`,
@@ -771,6 +950,14 @@ async function previewImport(context: SerametContext, body: any) {
         match: inventory ? "existing" : "create-candidate",
       }
     })
+
+    if (missingUnitCodes.size > 0) {
+      clientIssues.push(importIssue(
+        "UNIT_SETUP_PLAN",
+        `Standard Seramet units will be created automatically on import: ${[...missingUnitCodes].sort().join(", ")}.`,
+        "info",
+      ))
+    }
 
     if (existingRecipe) {
       clientIssues.push(importIssue(
@@ -934,6 +1121,112 @@ function microQuantity(value: unknown) {
     throw Object.assign(new Error("Import quantity is outside Seramet limits."), { status: 409 })
   }
   return micro
+}
+
+
+async function verifyCommittedRecipe(
+  context: SerametContext,
+  input: { menuItemId: string; recipeId: string; recipeVersionId?: string; sourceReference: string },
+) {
+  const { data: contentRow, error: contentError } = await admin
+    .from("cookbook_recipe_content_versions")
+    .select("recipe_id,recipe_version_id")
+    .eq("tenant_id", context.tenantId)
+    .eq("source_reference", input.sourceReference)
+    .limit(1)
+    .maybeSingle()
+
+  if (contentError) throw contentError
+
+  const recipeId = String(contentRow?.recipe_id || input.recipeId)
+  const versionId = String(contentRow?.recipe_version_id || input.recipeVersionId || "")
+
+  const [
+    { data: menuItem, error: menuError },
+    { data: recipe, error: recipeError },
+    { data: version, error: versionError },
+    { count: componentCount, error: componentError },
+    { data: auditEvent, error: auditError },
+    { data: recalculationEvent, error: recalculationError },
+  ] = await Promise.all([
+    admin
+      .from("menu_catalog_items")
+      .select("id")
+      .eq("tenant_id", context.tenantId)
+      .eq("id", input.menuItemId)
+      .limit(1)
+      .maybeSingle(),
+    admin
+      .from("recipes")
+      .select("id,current_version_id,active")
+      .eq("tenant_id", context.tenantId)
+      .eq("id", recipeId)
+      .limit(1)
+      .maybeSingle(),
+    versionId
+      ? admin
+          .from("recipe_versions")
+          .select("id,active")
+          .eq("tenant_id", context.tenantId)
+          .eq("id", versionId)
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null } as any),
+    versionId
+      ? admin
+          .from("recipe_version_components")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", context.tenantId)
+          .eq("recipe_version_id", versionId)
+      : Promise.resolve({ count: 0, error: null } as any),
+    versionId
+      ? admin
+          .from("audit_events")
+          .select("id")
+          .eq("tenant_id", context.tenantId)
+          .eq("action", "COOKBOOK_RECIPE_IMPORTED")
+          .eq("entity_id", versionId)
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null } as any),
+    admin
+      .from("inventory_recalculation_events")
+      .select("id")
+      .eq("tenant_id", context.tenantId)
+      .eq("event_type", "RECIPE_VERSION_CHANGED")
+      .eq("entity_id", recipeId)
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  if (menuError) throw menuError
+  if (recipeError) throw recipeError
+  if (versionError) throw versionError
+  if (componentError) throw componentError
+  if (auditError) throw auditError
+  if (recalculationError) throw recalculationError
+
+  const verification = {
+    menuItem: Boolean(menuItem),
+    recipe: Boolean(recipe && Number(recipe.active) === 1 && (!versionId || String(recipe.current_version_id) === versionId)),
+    version: Boolean(version && Number(version.active) === 1),
+    componentCount: Number(componentCount || 0),
+    cookbookContent: Boolean(contentRow),
+    auditEvent: Boolean(auditEvent),
+    recalculationEvent: Boolean(recalculationEvent),
+  }
+
+  return {
+    ...verification,
+    verified:
+      verification.menuItem &&
+      verification.recipe &&
+      verification.version &&
+      verification.componentCount > 0 &&
+      verification.cookbookContent &&
+      verification.auditEvent &&
+      verification.recalculationEvent,
+  }
 }
 
 async function commitImport(context: SerametContext, body: any) {
@@ -1202,13 +1495,23 @@ async function commitImport(context: SerametContext, body: any) {
           recipeByMenu.set(String(menu.id), recipe)
         }
       }
+      const committedRecipeId = String(committed?.recipeId || recipe.id)
+      const committedVersionId = committed?.recipeVersionId ? String(committed.recipeVersionId) : undefined
+      const verification = await verifyCommittedRecipe(context, {
+        menuItemId: String(menu.id),
+        recipeId: committedRecipeId,
+        recipeVersionId: committedVersionId,
+        sourceReference,
+      })
+
       results.push({
         clientId: String(row.clientId),
         name: row.name,
         status: committed?.status === "skipped" ? "skipped" : "imported",
-        recipeId: String(committed?.recipeId || recipe.id),
-        recipeVersionId: committed?.recipeVersionId ? String(committed.recipeVersionId) : undefined,
+        recipeId: committedRecipeId,
+        recipeVersionId: committedVersionId,
         message: committed?.reason ? String(committed.reason) : undefined,
+        verification,
       })
     } catch (error) {
       results.push({
@@ -1236,7 +1539,7 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return response({ ok: false, error: "Method not allowed" }, 405)
 
   try {
-    const context = await authenticate(req)
+    const context = await authenticateTestRequest(req)
     const body = await req.json().catch(() => ({}))
     const action = typeof body?.action === "string" ? body.action : ""
 

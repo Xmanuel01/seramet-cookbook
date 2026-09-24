@@ -11,6 +11,7 @@ import {
   saveRemoteContent,
 } from "./lib/cookbook-repository"
 import { isSupabaseConfigured, supabase } from "./lib/supabase"
+import { clearRootTestSession, isRootTestSession } from "./lib/root-test"
 import { AuthScreen } from "./screens/AuthScreen"
 import { CategoriesScreen } from "./screens/CategoriesScreen"
 import { ImportScreen } from "./screens/ImportScreen"
@@ -32,6 +33,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [rootTestMode, setRootTestMode] = useState(() => isRootTestSession())
   const [recoveringPassword, setRecoveringPassword] = useState(() => {
     if (typeof window === "undefined") return false
     return window.location.search.includes("recovery=1") || window.location.hash.includes("type=recovery")
@@ -63,6 +65,11 @@ export default function App() {
 
     let active = true
 
+    if (rootTestMode) {
+      setLoading(false)
+      return
+    }
+
     supabase.auth.getSession().then(({ data, error: sessionError }) => {
       if (!active) return
       if (sessionError) setError(sessionError.message)
@@ -85,10 +92,10 @@ export default function App() {
       active = false
       listener.subscription.unsubscribe()
     }
-  }, [])
+  }, [rootTestMode])
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !session?.user || recoveringPassword) return
+    if (!isSupabaseConfigured || recoveringPassword || (!session?.user && !rootTestMode)) return
 
     let active = true
     setLoading(true)
@@ -120,7 +127,7 @@ export default function App() {
     return () => {
       active = false
     }
-  }, [recoveringPassword, session?.user?.id])
+  }, [recoveringPassword, rootTestMode, session?.user?.id])
 
   function navigate(next: PrimaryScreen) {
     setScreen(next)
@@ -193,14 +200,23 @@ export default function App() {
   }
 
   async function signOut() {
+    if (rootTestMode) {
+      clearRootTestSession()
+      setRootTestMode(false)
+      setWorkspace(null)
+      setRecipes([])
+      setSelectedId("")
+      setScreen("recipes")
+      return
+    }
     await supabase.auth.signOut()
   }
 
-  if (isSupabaseConfigured && recoveringPassword && session) {
+  if (isSupabaseConfigured && recoveringPassword && session && !rootTestMode) {
     return <ResetPasswordScreen onComplete={() => setRecoveringPassword(false)} />
   }
 
-  if (isSupabaseConfigured && !session && !loading) return <AuthScreen />
+  if (isSupabaseConfigured && !session && !rootTestMode && !loading) return <AuthScreen />
 
   if (loading) {
     return (
@@ -259,7 +275,7 @@ export default function App() {
         <MoreScreen
           backendMode={backendMode}
           workspace={workspace}
-          email={session?.user.email}
+          email={rootTestMode ? "Temporary root test session" : session?.user.email}
           onSignOut={backendMode === "supabase" ? signOut : undefined}
         />
       )}
