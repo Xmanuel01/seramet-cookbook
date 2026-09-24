@@ -2,6 +2,13 @@ export type Ingredient = {
   id: string
   name: string
   quantity: string
+  quantityValue?: number
+  unitId?: string | null
+  unitCode?: string | null
+  unitLabel?: string | null
+  unitDimension?: "MASS" | "VOLUME" | "COUNT" | "OTHER" | null
+  unitScaleNumerator?: number
+  unitScaleDenominator?: number
 }
 
 export type Recipe = {
@@ -11,6 +18,13 @@ export type Recipe = {
   description: string
   portions: number
   portionSize: string
+  yieldQuantity?: number
+  yieldUnitId?: string | null
+  yieldUnitCode?: string | null
+  yieldUnitLabel?: string | null
+  yieldUnitDimension?: "MASS" | "VOLUME" | "COUNT" | "OTHER" | null
+  yieldUnitScaleNumerator?: number
+  yieldUnitScaleDenominator?: number
   prepMinutes: number
   cookMinutes: number
   image: string
