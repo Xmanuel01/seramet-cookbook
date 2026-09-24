@@ -590,7 +590,7 @@ async function loadRecipes(context: SerametContext, onlyRecipeId?: string) {
   const unitsResult = unitIds.length
     ? await admin
         .from("unit_definitions")
-        .select("id,code,name,symbol")
+        .select("id,code,name,symbol,dimension,base_scale_numerator,base_scale_denominator")
         .eq("tenant_id", context.tenantId)
         .in("id", unitIds)
     : { data: [], error: null }
@@ -633,10 +633,19 @@ async function loadRecipes(context: SerametContext, onlyRecipeId?: string) {
       const unitLabel = String(unit?.symbol || unit?.code || unit?.name || "").trim()
       const subRecipeId = component.sub_recipe_id ? String(component.sub_recipe_id) : null
 
+      const quantityValue = Math.max(0, Number(component.quantity_minor || 0) / 1_000_000)
+
       return {
         id: String(component.id),
         name: String(inventory?.name || (subRecipeId ? recipeNameMap.get(subRecipeId) : null) || "Recipe component"),
         quantity: `${displayQuantity(component.quantity_minor)}${unitLabel ? " " + unitLabel : ""}`,
+        quantityValue,
+        unitId: unitId || null,
+        unitCode: unit?.code ? String(unit.code) : null,
+        unitLabel: unitLabel || null,
+        unitDimension: unit?.dimension ? String(unit.dimension) : null,
+        unitScaleNumerator: Number(unit?.base_scale_numerator || 1),
+        unitScaleDenominator: Number(unit?.base_scale_denominator || 1),
       }
     })
 
@@ -661,6 +670,13 @@ async function loadRecipes(context: SerametContext, onlyRecipeId?: string) {
       portionSize:
         String(content?.portion_label || "").trim() ||
         `${displayQuantity(yieldMicro)}${yieldLabel ? " " + yieldLabel : ""}`,
+      yieldQuantity,
+      yieldUnitId: yieldUnitId || null,
+      yieldUnitCode: yieldUnit?.code ? String(yieldUnit.code) : null,
+      yieldUnitLabel: yieldLabel || null,
+      yieldUnitDimension: yieldUnit?.dimension ? String(yieldUnit.dimension) : null,
+      yieldUnitScaleNumerator: Number(yieldUnit?.base_scale_numerator || 1),
+      yieldUnitScaleDenominator: Number(yieldUnit?.base_scale_denominator || 1),
       prepMinutes: nonNegativeInteger(content?.prep_minutes),
       cookMinutes: nonNegativeInteger(content?.cook_minutes),
       image: String(content?.image_url || gradients[index % gradients.length]),
