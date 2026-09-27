@@ -2047,3 +2047,46 @@ svg {
 .batch-multiplier { padding: 6px 10px; border-radius: 999px; background: var(--brand-soft); color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .production-panel .batch-caution { padding: 9px 11px; border-left: 3px solid var(--warning); background: var(--card); color: var(--foreground); border-radius: 6px; line-height: 1.45; }
 .batch-ingredients-title { font-size: 16px; margin: 0 0 12px; }
+
+/* Chef production: large, touch-friendly, mobile-first preparation and cooking. */
+.kitchen-start { display: grid; gap: 12px; margin-top: 18px; padding: 17px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--card); }
+.kitchen-start strong, .kitchen-start small { display: block; }
+.kitchen-start small { margin-top: 4px; color: var(--muted-foreground); }
+.kitchen-main-action { width: 100%; min-height: 52px; font-size: 15px; border-radius: var(--radius-control); }
+.kitchen-mode { padding: 16px 0 24px; }
+.kitchen-mode-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.kitchen-phase-badge { padding: 7px 10px; border-radius: 999px; color: var(--primary); background: var(--brand-soft); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.kitchen-mode-title { margin: 18px 0; }
+.kitchen-mode-title h2 { margin: 0 0 6px; font-size: clamp(24px, 6vw, 32px); }
+.kitchen-mode-title p { color: var(--muted-foreground); margin: 0; }
+.kitchen-progress { padding: 16px; border-radius: var(--radius-panel); background: var(--secondary); }
+.kitchen-progress > div { display: flex; justify-content: space-between; gap: 12px; }
+.kitchen-progress progress, .kitchen-step progress { width: 100%; height: 8px; margin-top: 12px; accent-color: var(--primary); }
+.kitchen-checklist { display: grid; gap: 9px; margin: 16px 0; }
+.kitchen-check-row { border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); overflow: hidden; }
+.kitchen-check-row > label:first-child { display: flex; align-items: center; gap: 12px; padding: 14px; cursor: pointer; }
+.kitchen-check-row input, .kitchen-step-done input { flex: 0 0 auto; width: 23px; height: 23px; accent-color: var(--primary); cursor: pointer; }
+.kitchen-check-content { min-width: 0; display: grid; gap: 4px; }
+.kitchen-check-content strong { font-size: 16px; }
+.kitchen-check-content small { font-size: 15px; color: var(--muted-foreground); }
+.kitchen-review { display: flex; align-items: center; gap: 9px; margin: 0 14px 14px 48px; font-size: 13px; color: var(--warning); cursor: pointer; }
+.kitchen-hint { color: var(--muted-foreground); font-size: 13px; }
+.kitchen-timer, .kitchen-step, .kitchen-complete { padding: 20px; margin-bottom: 16px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--card); }
+.kitchen-timer-heading { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.kitchen-timer > strong { display: block; margin: 12px 0; font-size: clamp(40px, 11vw, 64px); line-height: 1.1; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.kitchen-timer small { display: block; margin-top: 12px; color: var(--muted-foreground); }
+.kitchen-timer-actions, .kitchen-step-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.kitchen-timer-actions button, .kitchen-step-actions button { min-height: 48px; flex: 1 1 120px; font-size: 14px; }
+.kitchen-step-meta { color: var(--primary); font-weight: 700; }
+.kitchen-step > p { margin: 24px 0; font-size: clamp(19px, 5vw, 24px); line-height: 1.55; white-space: pre-wrap; }
+.kitchen-step-done { display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 16px 0; cursor: pointer; font-weight: 700; }
+.kitchen-notes { margin-top: 12px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-control); }
+.kitchen-notes summary { cursor: pointer; font-weight: 700; }
+.kitchen-notes p { margin: 12px 0 0; line-height: 1.6; }
+.kitchen-complete { text-align: center; }
+.kitchen-complete > svg { color: var(--primary); }
+.kitchen-complete p { color: var(--muted-foreground); }
+@media (max-width: 390px) {
+  .kitchen-mode-top .back-button { font-size: 12px; }
+  .kitchen-timer, .kitchen-step { padding: 15px; }
+}
