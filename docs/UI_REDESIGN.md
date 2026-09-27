@@ -65,3 +65,9 @@ Pending merge gates: complete production build/typecheck; browser inspection at 
 ## Delivery limitation
 
 The connected GitHub service can read the repository, but its first write (`create_blob`) was rejected: `MCP tool call requires approval, but approval policy is never`. No GitHub objects, branch or PR were created. Terminal GitHub access is also unavailable. The local branch and PR description are prepared; publish them from a session with GitHub write approval after completing the verification gates.
+
+## Review deployment — 2026-09-27
+
+The user explicitly requested pushing to main for review in Vercel, superseding the earlier draft-PR delivery plan. With full network/filesystem access restored, `npm ci` completed successfully, `npm run build` passed (including TypeScript), and `npm test` passed all four tests. Vite reported an 888.72 kB minified JavaScript chunk warning; this is not a build failure. The dependency lockfile remains unchanged.
+
+This supersedes the installation/build and GitHub-access blockers above. Mobile browser, live authentication, remote save and DOCX import checks remain unverified; the requested deployment is for user review.
