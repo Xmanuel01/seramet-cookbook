@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Recipe } from "../types";
+import { KitchenProductionMode } from "./KitchenProductionMode";
 import {
   convertedIngredientTarget,
   finishedBatchYield,
@@ -18,6 +19,7 @@ export function ProductionScaler({ recipe }: { recipe: Recipe }) {
     return quantity ? [{ ...ingredient, ...quantity }] : [];
   });
   const [basis, setBasis] = useState<Basis>(finished ? "finished" : "portions");
+  const [productionActive, setProductionActive] = useState(false);
   const [unit, setUnit] = useState<MassUnit>("kg");
   const [target, setTarget] = useState(
     finished ? formatMass(finished.grams, "kg") : String(recipe.portions),
@@ -59,6 +61,18 @@ export function ProductionScaler({ recipe }: { recipe: Recipe }) {
       setTarget(formatMass(targetNumber * (unit === "kg" ? 1000 : 1), next));
     }
     setUnit(next);
+  }
+
+  if (productionActive && valid) {
+    return (
+      <KitchenProductionMode
+        key={`${recipe.id}:${basis}:${target}:${unit}`}
+        recipe={recipe}
+        factor={factor}
+        batchLabel={`${targetNumber} ${unitLabel}`}
+        onExit={() => setProductionActive(false)}
+      />
+    );
   }
 
   return (
@@ -168,6 +182,21 @@ export function ProductionScaler({ recipe }: { recipe: Recipe }) {
             </div>
           );
         })}
+        <div className="kitchen-start">
+          <div>
+            <strong>Ready to cook?</strong>
+            <small>Measure ingredients and follow the recipe one step at a time.</small>
+          </div>
+          <button
+            type="button"
+            className="primary-button kitchen-main-action"
+            disabled={!valid || recipe.ingredients.length === 0 || recipe.method.length === 0}
+            onClick={() => setProductionActive(true)}
+          >
+            Prepare this batch
+          </button>
+          {recipe.method.length === 0 && <small>Approved cooking instructions are needed to start cooking mode.</small>}
+        </div>
       </section>
     </>
   );
