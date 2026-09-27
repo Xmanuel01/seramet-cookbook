@@ -37,17 +37,23 @@ export function recipeDraftFingerprint(recipe: {
   ingredients: Array<{ id: string; name: string; quantity: string }>;
   method: string[];
 }) {
-  return JSON.stringify([
+  const canonical = JSON.stringify([
     recipe.id, recipe.version ?? null, recipe.recipeVersionId ?? null,
     recipe.contentRevision ?? null, recipe.portions, recipe.portionSize,
     recipe.ingredients.map((item) => [item.id, item.name, item.quantity]),
     recipe.method,
   ]);
+  // Small deterministic cache validator, NOT an authentication signature.
+  let hash = 0xcbf29ce484222325n;
+  for (let i = 0; i < canonical.length; i++) {
+    hash = BigInt.asUintN(64, (hash ^ BigInt(canonical.charCodeAt(i))) * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
 }
 
 export function validateKitchenDraft(
   raw: string | null,
-  expected: { recipeId: string; recipeVersion: string; fingerprint: string; ingredientIds: string[]; stepCount: number },
+  expected: { recipeId: string; recipeVersion: string; fingerprint: string; ingredientIds: string[]; ambiguousIds: string[]; stepCount: number },
   now = Date.now(),
 ): KitchenDraft | null {
   if (!raw || raw.length > 40000) return null;
@@ -59,7 +65,10 @@ export function validateKitchenDraft(
       d.fingerprint !== expected.fingerprint || typeof d.basis !== "string" ||
       typeof d.target !== "string" || !/^\d*\.?\d+$/.test(d.target) ||
       Number(d.target) <= 0 || !Number.isFinite(Number(d.target)) ||
-      !["kg", "g"].includes(String(d.unit)) || !Number.isFinite(d.savedAt) ||
+      !["kg", "g"].includes(String(d.unit)) ||
+      !(d.basis === "finished" || d.basis === "portions" ||
+        (d.basis.startsWith("ingredient:") && expected.ingredientIds.includes(d.basis.slice(11)))) ||
+      !Number.isFinite(d.savedAt) ||
       Number(d.savedAt) > now + 60_000 || now - Number(d.savedAt) > KITCHEN_DRAFT_MAX_AGE_MS ||
       !["prep", "cook"].includes(String(d.phase)) ||
       !Array.isArray(d.checked) || !Array.isArray(d.verified) ||
@@ -76,7 +85,8 @@ export function validateKitchenDraft(
       d.completedSteps.length > expected.stepCount ||
       d.completedSteps.some((index: unknown) => !Number.isInteger(index) || Number(index) < 0 || Number(index) >= expected.stepCount) ||
       new Set(d.completedSteps).size !== d.completedSteps.length) return null;
-    if (d.phase === "cook" && d.checked.length !== ids.size) return null;
+    if (d.phase === "cook" && (d.checked.length !== ids.size ||
+      !expected.ambiguousIds.every((id) => d.verified.includes(id)))) return null;
     if (d.phase === "cook" && d.completedSteps.length && !d.completedSteps.includes(0)) return null;
     return d as KitchenDraft;
   } catch {
