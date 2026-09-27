@@ -2014,3 +2014,15 @@ svg {
 .auth-card .auth-field input:has(+ .auth-password-toggle) {
   padding-right: 50px;
 }
+
+/* Time-limited sample-only demo entry. */
+.auth-demo { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); text-align: center; }
+.auth-demo-link { border: 0; background: transparent; color: var(--primary); min-height: 44px; padding: 8px 12px; font: inherit; font-weight: 600; }
+.auth-demo-form { display: grid; gap: 8px; text-align: left; }
+.auth-demo-form label { font-weight: 600; }
+.auth-demo-row { display: flex; gap: 8px; }
+.auth-demo-row input { flex: 1; min-width: 0; height: 46px; padding: 0 12px; border-radius: var(--radius-control); border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: 16px; }
+.auth-demo-form small { color: var(--muted-foreground); }
+.demo-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; background: var(--brand-soft); color: var(--foreground); font-size: 13px; }
+.demo-banner button { border: 1px solid var(--primary); border-radius: var(--radius-control); padding: 6px 10px; background: transparent; color: var(--primary); font-weight: 600; }
+.demo-panel { margin-top: 16px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--card); }
