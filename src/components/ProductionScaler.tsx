@@ -103,14 +103,17 @@ export function ProductionScaler({ recipe }: { recipe: Recipe }) {
           <div className="batch-target-row">
             <input
               id="production-target"
-              type="number"
+              type="text"
               inputMode="decimal"
-              min="0"
-              step="any"
+              autoComplete="off"
+              placeholder="e.g. 3.5"
               value={target}
               aria-invalid={!valid}
               aria-describedby="production-help"
-              onChange={(event) => setTarget(event.target.value)}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (/^(?:\d*(?:\.\d*)?)?$/.test(next)) setTarget(next);
+              }}
             />
             {basis === "finished" ? (
               <select
@@ -127,9 +130,12 @@ export function ProductionScaler({ recipe }: { recipe: Recipe }) {
         <div id="production-help" className="batch-result" aria-live="polite">
           {valid ? (
             <>
-              <span>Required batch</span>
-              <strong>{targetNumber} {unitLabel}</strong>
-              <small>{Number(factor.toPrecision(5))}× standard recipe · ingredients updated below</small>
+              <span>Batch preview</span>
+              <div className="batch-result-summary">
+                <strong>{targetNumber} {unitLabel}</strong>
+                <span className="batch-multiplier">{Number(factor.toPrecision(4))}× standard</span>
+              </div>
+              <small>Ingredient quantities update automatically.</small>
             </>
           ) : <span>Enter a quantity greater than zero.</span>}
         </div>
