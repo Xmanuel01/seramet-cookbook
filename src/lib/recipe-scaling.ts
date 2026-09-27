@@ -11,7 +11,11 @@ export function scaleQuantity(raw: string, factor: number): string | null {
   if (!quantity || !Number.isFinite(factor) || factor <= 0) return null;
   const scaled = quantity.value * factor;
   if (!Number.isFinite(scaled) || scaled <= 0) return null;
-  const amount = Number(scaled.toPrecision(6)).toString();
+  // Kitchen display: one decimal for ordinary amounts. Very small positive
+  // amounts retain precision rather than incorrectly displaying 0.0.
+  const amount = scaled >= 0.05
+    ? scaled.toFixed(1)
+    : Number(scaled.toPrecision(6)).toString();
   return `${amount}${quantity.unit ? ` ${quantity.unit}` : ""}`;
 }
 
