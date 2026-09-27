@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { LoaderCircle, RefreshCw } from "lucide-react";
 import { AppShell } from "./components/AppShell";
+import { DemoPreview } from "./components/DemoPreview";
+import { demoAvailable } from "./lib/demo";
 import { defaultCategories, seedRecipes } from "./data/recipes";
 import {
   getCookbookProfile,
@@ -30,6 +32,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [demo, setDemo] = useState(false);
   const [workspace, setWorkspace] = useState<CookbookWorkspace | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -204,15 +207,22 @@ export default function App() {
     });
   }
 
+  function exitDemo() {
+    setDemo(false);
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
   }
+
+  // Demo is entirely isolated from Supabase sessions and authoritative recipes.
+  if (demo && demoAvailable() && !session) return <DemoPreview onExit={exitDemo} />;
 
   if (isSupabaseConfigured && recoveringPassword && session) {
     return <ResetPasswordScreen onComplete={() => setRecoveringPassword(false)} />;
   }
 
-  if (isSupabaseConfigured && !session && !loading) return <AuthScreen />;
+  if (isSupabaseConfigured && !session && !loading) return <AuthScreen onDemo={() => setDemo(true)} />;
 
   if (loading) {
     return (

@@ -9,15 +9,34 @@ import {
 } from "lucide-react";
 import { Brand } from "../components/Brand";
 import { supabase } from "../lib/supabase";
+import { demoAvailable, DEMO_PIN } from "../lib/demo";
 
-export function AuthScreen() {
+export function AuthScreen({ onDemo }: { onDemo?: () => void }) {
   const [mode, setMode] = useState<"signin" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [demoPin, setDemoPin] = useState("");
+  const [demoError, setDemoError] = useState("");
+  const [demoOpen, setDemoOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  function enterDemo(event: FormEvent) {
+    event.preventDefault();
+    setDemoError("");
+    if (!demoAvailable()) {
+      setDemoError("Demo access has expired.");
+      return;
+    }
+    if (demoPin !== DEMO_PIN) {
+      setDemoError("Incorrect demo PIN.");
+      return;
+    }
+    setDemoPin("");
+    onDemo?.();
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -140,6 +159,36 @@ export function AuthScreen() {
               </button>
             </form>
 
+            {onDemo && demoAvailable() && (
+              <div className="auth-demo">
+                {!demoOpen ? (
+                  <button type="button" className="auth-demo-link" onClick={() => setDemoOpen(true)}>
+                    Preview with demo PIN
+                  </button>
+                ) : (
+                  <form className="auth-demo-form" onSubmit={enterDemo}>
+                    <label htmlFor="demo-pin">Demo PIN</label>
+                    <div className="auth-demo-row">
+                      <input
+                        id="demo-pin"
+                        type="password"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        maxLength={6}
+                        pattern="[0-9]{6}"
+                        required
+                        value={demoPin}
+                        onChange={(event) => setDemoPin(event.target.value.replace(/\D/g, ""))}
+                        placeholder="6-digit PIN"
+                      />
+                      <button type="submit" className="secondary-button">Preview</button>
+                    </div>
+                    {demoError && <div className="auth-message error" role="alert">{demoError}</div>}
+                    <small>Sample data only · No Seramet access</small>
+                  </form>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <>
