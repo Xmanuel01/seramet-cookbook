@@ -2090,3 +2090,10 @@ svg {
   .kitchen-mode-top .back-button { font-size: 12px; }
   .kitchen-timer, .kitchen-step { padding: 15px; }
 }
+
+/* Resumable local draft controls (not an official production record). */
+.kitchen-resume { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--primary); border-radius: var(--radius-control); background: var(--brand-soft); }
+.kitchen-resume small, .kitchen-draft-note { display: block; margin-top: 5px; font-size: 12px; color: var(--muted-foreground); }
+.kitchen-resume .secondary-button { min-height: 44px; border-color: var(--primary); }
+.kitchen-discard { min-height: 44px; padding: 9px 12px; border: 0; background: transparent; color: var(--muted-foreground); font: inherit; font-size: 13px; text-decoration: underline; }
+.kitchen-discard:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
