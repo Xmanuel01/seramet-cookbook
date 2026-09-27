@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import {
   ArrowLeft,
-  BookOpenText,
   LoaderCircle,
   LockKeyhole,
   Mail,
-  ShieldCheck,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Brand } from "../components/Brand";
 import { supabase } from "../lib/supabase";
@@ -14,6 +14,7 @@ export function AuthScreen() {
   const [mode, setMode] = useState<"signin" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -29,7 +30,7 @@ export function AuthScreen() {
       if (signInError) {
         if (signInError.message.toLowerCase().includes("invalid login credentials")) {
           throw new Error(
-            "Incorrect Seramet account password. Your 4/6-digit POS PIN will not work on this account sign-in.",
+            "Incorrect email or password.",
           );
         }
         throw signInError;
@@ -54,7 +55,7 @@ export function AuthScreen() {
       });
       if (resetError) throw resetError;
       setMessage(
-        "If this email belongs to a Seramet account, a secure password-reset link has been sent. Open it on this device, set a new password, then the Cookbook will continue automatically.",
+        "If this account exists, check your email for a reset link.",
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to send the recovery email.");
@@ -69,18 +70,11 @@ export function AuthScreen() {
         <div className="auth-brand">
           <Brand />
         </div>
-        <div className="auth-icon">
-          <BookOpenText size={24} />
-        </div>
 
         {mode === "signin" ? (
           <>
-            <div className="eyebrow">Seramet kitchen standards</div>
             <h1>Welcome back</h1>
-            <p className="subtitle">
-              Sign in with your Seramet account email and account password. Cookbook access follows
-              your existing role and branch permissions.
-            </p>
+            <p className="subtitle">Sign in to continue</p>
 
             <form className="auth-form" onSubmit={submit}>
               <label className="auth-field">
@@ -99,18 +93,26 @@ export function AuthScreen() {
               </label>
 
               <label className="auth-field">
-                <span>Account password</span>
+                <span>Password</span>
                 <div>
                   <LockKeyhole size={16} />
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
-                    minLength={10}
                     required
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Your Seramet account password"
+                    placeholder="Enter your password"
                   />
+                  <button
+                    type="button"
+                    className="auth-password-toggle"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((current) => !current)}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
               </label>
 
@@ -123,7 +125,7 @@ export function AuthScreen() {
                   setMessage("");
                 }}
               >
-                Forgot account password?
+                Forgot password?
               </button>
 
               {error && (
@@ -138,16 +140,6 @@ export function AuthScreen() {
               </button>
             </form>
 
-            <div className="info-card" style={{ boxShadow: "none" }}>
-              <ShieldCheck size={18} />
-              <div>
-                <strong>Account password ≠ POS PIN</strong>
-                <p>
-                  The Cookbook uses your full Seramet account identity. The 4/6-digit employee PIN
-                  is restricted to branch-bound POS devices.
-                </p>
-              </div>
-            </div>
           </>
         ) : (
           <>
@@ -167,7 +159,7 @@ export function AuthScreen() {
             <div className="eyebrow">Account recovery</div>
             <h1>Reset password</h1>
             <p className="subtitle">
-              We’ll send a secure Supabase recovery link to the email on your Seramet account.
+              Enter your email to receive a reset link.
             </p>
 
             <form className="auth-form" onSubmit={requestReset}>

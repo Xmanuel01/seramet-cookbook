@@ -1984,3 +1984,33 @@ svg {
 .search-row .secondary-button {
   margin-top: 10px;
 }
+
+/* Compact, mobile-first Cookbook sign-in. Scoped to avoid affecting other forms. */
+.auth-card .auth-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.auth-card .auth-password-toggle svg {
+  position: static;
+  transform: none;
+  color: inherit;
+}
+.auth-card .auth-password-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
+}
+.auth-card .auth-field input:has(+ .auth-password-toggle) {
+  padding-right: 50px;
+}
