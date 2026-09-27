@@ -2035,11 +2035,15 @@ svg {
 .batch-standard { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 13px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
 .batch-standard span { color: var(--muted-foreground); }
 .batch-standard strong { font-size: 16px; font-variant-numeric: tabular-nums; }
-.batch-target-row { display: flex; gap: 8px; }
-.batch-target-row input { flex: 1; min-width: 0; height: 50px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); padding: 10px 12px; font-size: 20px; font-variant-numeric: tabular-nums; }
-.batch-target-row select, .batch-unit { min-width: 66px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); padding: 8px; display: grid; place-items: center; }
-.batch-result { display: grid; gap: 4px; margin-top: 12px; padding: 13px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
+.production-panel .batch-target-row { display: grid; grid-template-columns: minmax(0, 1fr) 88px; gap: 8px; width: 100%; }
+.production-panel .batch-target-row input { box-sizing: border-box; width: 100%; min-width: 0; height: 54px; padding: 0 15px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.production-panel .batch-target-row select, .production-panel .batch-target-row .batch-unit { box-sizing: border-box; width: 88px; min-width: 0; height: 54px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); font-size: 16px; font-weight: 600; }
+.production-panel .batch-target-row .batch-unit { display: flex; align-items: center; justify-content: center; overflow-wrap: anywhere; font-size: 13px; }
+.production-panel .batch-target-row :is(input, select):focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.batch-result { display: grid; gap: 8px; margin-top: 12px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
 .batch-result > span, .batch-result small { color: var(--muted-foreground); }
-.batch-result strong { font-size: 23px; font-variant-numeric: tabular-nums; }
+.batch-result-summary { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.batch-result-summary strong { font-size: clamp(22px, 5vw, 27px); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.batch-multiplier { padding: 6px 10px; border-radius: 999px; background: var(--brand-soft); color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .production-panel .batch-caution { padding: 9px 11px; border-left: 3px solid var(--warning); background: var(--card); color: var(--foreground); border-radius: 6px; line-height: 1.45; }
 .batch-ingredients-title { font-size: 16px; margin: 0 0 12px; }
