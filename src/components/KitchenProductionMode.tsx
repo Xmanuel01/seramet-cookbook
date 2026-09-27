@@ -2,52 +2,70 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Clock3, Pause, Play, RotateCcw } from "lucide-react";
 import type { Recipe } from "../types";
 import { scaleQuantity } from "../lib/recipe-scaling";
+import { clearKitchenDraft, saveKitchenDraft, type KitchenDraft } from "../lib/kitchen-draft";
 
 type Phase = "prep" | "cook" | "complete";
 
-/**
- * Client-only guided cooking session. Nothing is posted to Seramet or inventory.
- * The parent remounts this component for each approved batch calculation.
- */
 export function KitchenProductionMode({
-  recipe,
-  factor,
-  batchLabel,
-  onExit,
+  recipe, factor, batchLabel, onExit, draftKey, fingerprint, basis, target, unit, initialDraft,
 }: {
   recipe: Recipe;
   factor: number;
   batchLabel: string;
   onExit: () => void;
+  /** Omitted in sample/demo mode, which never writes persistent data. */
+  draftKey?: string;
+  fingerprint: string;
+  basis: string;
+  target: string;
+  unit: string;
+  initialDraft?: KitchenDraft | null;
 }) {
-  const [checked, setChecked] = useState<string[]>([]);
-  const [reviewed, setReviewed] = useState<string[]>([]);
-  const [phase, setPhase] = useState<Phase>("prep");
-  const [stepIndex, setStepIndex] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
-  const [secondsLeft, setSecondsLeft] = useState(Math.max(0, Math.round(recipe.cookMinutes * 60)));
-  const [deadline, setDeadline] = useState<number | null>(null);
-  const [timerDone, setTimerDone] = useState(false);
+  const maxSeconds = Math.max(0, Math.round(recipe.cookMinutes * 60));
+  const [checked, setChecked] = useState<string[]>(initialDraft?.checked ?? []);
+  const [reviewed, setReviewed] = useState<string[]>(initialDraft?.verified ?? []);
+  const [phase, setPhase] = useState<Phase>(initialDraft?.phase ?? "prep");
+  const [stepIndex, setStepIndex] = useState(initialDraft?.stepIndex ?? 0);
+  const [completedSteps, setCompletedSteps] = useState<number[]>(initialDraft?.completedSteps ?? []);
+  const [secondsLeft, setSecondsLeft] = useState(() => initialDraft?.deadline != null
+    ? Math.max(0, Math.ceil((initialDraft.deadline - Date.now()) / 1000))
+    : initialDraft?.secondsLeft ?? maxSeconds);
+  const [deadline, setDeadline] = useState<number | null>(() =>
+    initialDraft?.deadline != null && initialDraft.deadline > Date.now() ? initialDraft.deadline : null);
+  const [timerDone, setTimerDone] = useState(() => Boolean(initialDraft?.deadline && initialDraft.deadline <= Date.now()));
+  const [saveFailed, setSaveFailed] = useState(false);
 
+  // Clock deadline, not interval counters: switching tabs does not make the timer drift.
   useEffect(() => {
     if (deadline === null) return;
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       setSecondsLeft(remaining);
-      if (remaining === 0) {
-        setDeadline(null);
-        setTimerDone(true);
-      }
+      if (remaining === 0) { setDeadline(null); setTimerDone(true); }
     };
     tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
+    const timer = window.setInterval(tick, 1000);
+    document.addEventListener("visibilitychange", tick);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", tick); };
   }, [deadline]);
 
+  // Checkpoints are scoped to authenticated tenant/user/recipe and invalidated if
+  // recipe ingredients, directions or version change. Not an official batch log.
+  useEffect(() => {
+    if (!draftKey) return;
+    if (phase === "complete") { clearKitchenDraft(draftKey); return; }
+    const draft: KitchenDraft = {
+      schema: 1, recipeId: recipe.id, recipeVersion: recipe.recipeVersionId ?? "local",
+      fingerprint, basis, target, unit, checked, verified: reviewed, phase,
+      completedSteps, stepIndex, secondsLeft, deadline, savedAt: Date.now(),
+    };
+    if (!saveKitchenDraft(draftKey, draft)) setSaveFailed(true);
+  }, [draftKey, recipe.id, recipe.recipeVersionId, fingerprint, basis, target, unit,
+    checked, reviewed, phase, completedSteps, stepIndex, secondsLeft, deadline]);
+
   const ambiguous = recipe.ingredients.filter((item) => scaleQuantity(item.quantity, factor) === null);
-  const count = recipe.ingredients.length;
-  const ready = checked.length === count && ambiguous.every((item) => reviewed.includes(item.id));
-  const progress = count > 0 ? Math.round((checked.length / count) * 100) : 100;
+  const ready = recipe.ingredients.length > 0 && checked.length === recipe.ingredients.length &&
+    ambiguous.every((item) => reviewed.includes(item.id));
   const steps = recipe.method;
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = secondsLeft % 60;
@@ -55,13 +73,11 @@ export function KitchenProductionMode({
   function toggle(id: string) {
     setChecked((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   }
-
   function resetTimer() {
     setDeadline(null);
-    setSecondsLeft(Math.max(0, Math.round(recipe.cookMinutes * 60)));
+    setSecondsLeft(maxSeconds);
     setTimerDone(false);
   }
-
   function toggleTimer() {
     if (deadline !== null) {
       setSecondsLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
@@ -71,109 +87,137 @@ export function KitchenProductionMode({
       setTimerDone(false);
     }
   }
+  function finish() {
+    setDeadline(null);
+    setPhase("complete");
+    if (draftKey) clearKitchenDraft(draftKey);
+  }
+  function startOver() {
+    if (!window.confirm("Discard this unfinished kitchen checklist and start again?")) return;
+    setDeadline(null);
+    setSecondsLeft(maxSeconds);
+    setTimerDone(false);
+    setChecked([]);
+    setReviewed([]);
+    setCompletedSteps([]);
+    setStepIndex(0);
+    setPhase("prep");
+    if (draftKey) clearKitchenDraft(draftKey);
+  }
 
   return (
     <section className="kitchen-mode" aria-label="Guided kitchen production">
       <header className="kitchen-mode-top">
-        <button type="button" className="back-button" onClick={onExit}>
-          <ArrowLeft size={17} /> Batch calculator
-        </button>
-        <span className="kitchen-phase-badge">{phase === "prep" ? "1 · Prepare" : phase === "cook" ? "2 · Cook" : "3 · Done"}</span>
+        <button type="button" className="back-button" onClick={onExit}><ArrowLeft size={17}/> Batch calculator</button>
+        <span className="kitchen-phase-badge">
+          {phase === "prep" ? "1 · Prepare" : phase === "cook" ? "2 · Cook" : "3 · Done"}
+        </span>
       </header>
       <div className="kitchen-mode-title">
-        <span className="eyebrow">Kitchen production · This device only</span>
+        <span className="eyebrow">Guided cooking · Not an official production record</span>
         <h2>{recipe.name}</h2>
         <p>{batchLabel}</p>
+        {draftKey && <small className="kitchen-draft-note">Progress saved on this browser for up to 24 hours.</small>}
+        {saveFailed && <p className="batch-caution" role="alert">Your browser could not save progress. Keep this page open until you finish.</p>}
       </div>
 
       {phase === "prep" && (
         <>
-          <div className="kitchen-progress" aria-label={`Ingredients measured: ${checked.length} of ${count}`}>
-            <div><strong>Measure ingredients</strong><span>{checked.length}/{count} ready</span></div>
-            <progress max={Math.max(1, count)} value={checked.length}>{progress}%</progress>
+          <div className="kitchen-progress">
+            <div><strong>Measure ingredients</strong><span>{checked.length}/{recipe.ingredients.length} ready</span></div>
+            <progress max={Math.max(1, recipe.ingredients.length)} value={checked.length}>
+              {checked.length} of {recipe.ingredients.length}
+            </progress>
           </div>
           <div className="kitchen-checklist">
             {recipe.ingredients.map((item) => {
-              const scaled = scaleQuantity(item.quantity, factor);
-              const uncertain = scaled === null;
+              const calculated = scaleQuantity(item.quantity, factor);
+              const uncertain = calculated === null;
               return (
                 <div className="kitchen-check-row" key={item.id}>
                   <label>
-                    <input type="checkbox" checked={checked.includes(item.id)} onChange={() => toggle(item.id)} />
+                    <input type="checkbox" checked={checked.includes(item.id)} onChange={() => toggle(item.id)}/>
                     <span className="kitchen-check-content">
                       <strong>{item.name}</strong>
-                      <small>{scaled ?? item.quantity}{uncertain ? " · Verify quantity" : ""}</small>
+                      <small>{calculated ?? item.quantity}{uncertain ? " · Manual quantity review" : ""}</small>
                     </span>
                   </label>
-                  {uncertain && (
-                    <label className="kitchen-review">
-                      <input
-                        type="checkbox"
-                        checked={reviewed.includes(item.id)}
-                        onChange={() => setReviewed((current) => current.includes(item.id) ? current.filter((value) => value !== item.id) : [...current, item.id])}
-                      />
-                      Chef verified
-                    </label>
-                  )}
+                  {uncertain && <label className="kitchen-review">
+                    <input
+                      type="checkbox"
+                      checked={reviewed.includes(item.id)}
+                      onChange={() => setReviewed((current) => current.includes(item.id)
+                        ? current.filter((value) => value !== item.id) : [...current, item.id])}
+                    />
+                    Quantity manually confirmed
+                  </label>}
                 </div>
               );
             })}
           </div>
-          {!ready && <p className="kitchen-hint">Check all measured ingredients{ambiguous.length ? " and verify any uncertain quantities" : ""} before starting.</p>}
-          <button type="button" className="primary-button kitchen-main-action" disabled={!ready} onClick={() => setPhase("cook")}>
-            Start cooking <ChevronRight size={19} />
+          {!ready && <p className="kitchen-hint">Measure every ingredient{ambiguous.length > 0 ? " and confirm uncertain amounts" : ""} to continue.</p>}
+          <button type="button" className="primary-button kitchen-main-action"
+            disabled={!ready || steps.length === 0} onClick={() => setPhase("cook")}>
+            Start cooking <ChevronRight size={19}/>
           </button>
+          <button type="button" className="kitchen-discard" onClick={startOver}>Reset checklist</button>
         </>
       )}
 
       {phase === "cook" && (
         <>
           <div className="kitchen-timer">
-            <div className="kitchen-timer-heading"><Clock3 size={18} /> Optional total cook timer</div>
+            <div className="kitchen-timer-heading"><Clock3 size={18}/> Optional total cook timer</div>
             <strong role="timer" aria-live="off">{String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}</strong>
             <div className="kitchen-timer-actions">
               <button type="button" className="secondary-button" onClick={toggleTimer} disabled={secondsLeft === 0}>
-                {deadline !== null ? <Pause size={17} /> : <Play size={17} />}
+                {deadline !== null ? <Pause size={17}/> : <Play size={17}/>}
                 {deadline !== null ? "Pause" : "Start timer"}
               </button>
-              <button type="button" className="secondary-button" onClick={resetTimer}><RotateCcw size={16} /> Reset</button>
+              <button type="button" className="secondary-button" onClick={resetTimer}><RotateCcw size={16}/> Reset</button>
             </div>
-            {timerDone && <p role="status">Timer finished. Confirm cooking is complete before serving.</p>}
-            <small>Uses the recipe's total cook time, not estimated timings for individual steps.</small>
+            {timerDone && <p role="status">Timer finished. Verify food safety and doneness before serving.</p>}
+            <small>A timer is a reminder, not a food safety or cooking-temperature check.</small>
           </div>
-          {steps.length ? (
-            <div className="kitchen-step">
-              <div className="kitchen-step-meta">Step {stepIndex + 1} of {steps.length}</div>
-              <progress value={completedSteps.length} max={steps.length}>{completedSteps.length}/{steps.length}</progress>
-              <p>{steps[stepIndex]}</p>
-              <label className="kitchen-step-done">
-                <input type="checkbox" checked={completedSteps.includes(stepIndex)} onChange={() => setCompletedSteps((current) => current.includes(stepIndex) ? current.filter((value) => value !== stepIndex) : [...current, stepIndex])} />
-                Step complete
-              </label>
-              <div className="kitchen-step-actions">
-                <button type="button" className="secondary-button" onClick={() => setStepIndex((current) => Math.max(0, current - 1))} disabled={stepIndex === 0}><ChevronLeft size={18} /> Previous</button>
-                {stepIndex < steps.length - 1 ? (
-                  <button type="button" className="primary-button" onClick={() => setStepIndex((current) => current + 1)} disabled={!completedSteps.includes(stepIndex)}>Next <ChevronRight size={18} /></button>
-                ) : (
-                  <button type="button" className="primary-button" disabled={completedSteps.length !== steps.length} onClick={() => { setDeadline(null); setPhase("complete"); }}><Check size={18} /> Finish</button>
-                )}
-              </div>
+          {steps.length > 0 && <div className="kitchen-step">
+            <div className="kitchen-step-meta">Step {stepIndex + 1} of {steps.length}</div>
+            <progress value={completedSteps.length} max={steps.length}/>
+            <p>{steps[stepIndex]}</p>
+            <label className="kitchen-step-done">
+              <input type="checkbox" checked={completedSteps.includes(stepIndex)}
+                onChange={() => setCompletedSteps((current) => current.includes(stepIndex)
+                  ? current.filter((index) => index !== stepIndex) : [...current, stepIndex])}/>
+              Step complete
+            </label>
+            <div className="kitchen-step-actions">
+              <button type="button" className="secondary-button"
+                disabled={stepIndex === 0} onClick={() => setStepIndex((current) => current - 1)}>
+                <ChevronLeft size={18}/> Previous
+              </button>
+              {stepIndex < steps.length - 1 ? (
+                <button type="button" className="primary-button"
+                  disabled={!completedSteps.includes(stepIndex)} onClick={() => setStepIndex((current) => current + 1)}>
+                  Next <ChevronRight size={18}/>
+                </button>
+              ) : (
+                <button type="button" className="primary-button"
+                  disabled={completedSteps.length !== steps.length} onClick={finish}>
+                  <Check size={18}/> Complete steps
+                </button>
+              )}
             </div>
-          ) : (
-            <div className="kitchen-step">
-              <p>No verified cooking steps are recorded for this recipe. Ask your kitchen supervisor for the approved method.</p>
-              <button type="button" className="secondary-button" onClick={onExit}>Return to recipe</button>
-            </div>
-          )}
+          </div>}
           {recipe.notes && <details className="kitchen-notes"><summary>Chef notes</summary><p>{recipe.notes}</p></details>}
+          <button type="button" className="kitchen-discard" onClick={startOver}>Discard progress and restart</button>
         </>
       )}
 
       {phase === "complete" && (
         <div className="kitchen-complete">
-          <Check size={38} aria-hidden="true" />
-          <h2>Steps completed</h2>
-          <p>Measured ingredients and cooking steps are checked on this device. This is not an official production or inventory record.</p>
+          <Check size={38} aria-hidden="true"/>
+          <h2>Instructions completed</h2>
+          <p>Checklist complete on this device. A supervisor must still confirm production,
+            food safety and any official inventory updates in Seramet.</p>
           <button type="button" className="primary-button kitchen-main-action" onClick={onExit}>Back to recipe</button>
         </div>
       )}
