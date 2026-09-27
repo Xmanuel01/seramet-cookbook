@@ -11,6 +11,8 @@ export type Recipe = {
   description: string
   portions: number
   portionSize: string
+  /** Optional recorded cooked batch mass, e.g. '2 kg'. Not inferred from raw ingredient weight. */
+  finishedYield?: string | null
   prepMinutes: number
   cookMinutes: number
   image: string
