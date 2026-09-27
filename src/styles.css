@@ -2026,3 +2026,20 @@ svg {
 .demo-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; background: var(--brand-soft); color: var(--foreground); font-size: 13px; }
 .demo-banner button { border: 1px solid var(--primary); border-radius: var(--radius-control); padding: 6px 10px; background: transparent; color: var(--primary); font-weight: 600; }
 .demo-panel { margin-top: 16px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--card); }
+
+/* Chef-facing responsive live batch calculation panel. */
+.batch-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.batch-heading h2 { margin: 0; }
+.batch-heading p { margin: 5px 0 0; }
+.batch-badge { flex-shrink: 0; padding: 5px 8px; border-radius: 999px; background: var(--brand-soft); color: var(--primary); font-size: 11px; font-weight: 700; }
+.batch-standard { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 13px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
+.batch-standard span { color: var(--muted-foreground); }
+.batch-standard strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.batch-target-row { display: flex; gap: 8px; }
+.batch-target-row input { flex: 1; min-width: 0; height: 50px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); padding: 10px 12px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.batch-target-row select, .batch-unit { min-width: 66px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); padding: 8px; display: grid; place-items: center; }
+.batch-result { display: grid; gap: 4px; margin-top: 12px; padding: 13px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); }
+.batch-result > span, .batch-result small { color: var(--muted-foreground); }
+.batch-result strong { font-size: 23px; font-variant-numeric: tabular-nums; }
+.production-panel .batch-caution { padding: 9px 11px; border-left: 3px solid var(--warning); background: var(--card); color: var(--foreground); border-radius: 6px; line-height: 1.45; }
+.batch-ingredients-title { font-size: 16px; margin: 0 0 12px; }

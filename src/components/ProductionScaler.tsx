@@ -1,70 +1,152 @@
 import { useState } from "react";
 import type { Recipe } from "../types";
-import { numericQuantity, scaleQuantity } from "../lib/recipe-scaling";
+import {
+  convertedIngredientTarget,
+  finishedBatchYield,
+  formatMass,
+  numericQuantity,
+  scaleQuantity,
+  type MassUnit,
+} from "../lib/recipe-scaling";
+
+type Basis = "finished" | "portions" | `ingredient:${string}`;
 
 export function ProductionScaler({ recipe }: { recipe: Recipe }) {
-  const [basis, setBasis] = useState("");
-  const [target, setTarget] = useState(String(recipe.portions));
+  const finished = finishedBatchYield(recipe);
   const options = recipe.ingredients.flatMap((ingredient) => {
     const quantity = numericQuantity(ingredient.quantity);
     return quantity ? [{ ...ingredient, ...quantity }] : [];
   });
-  const selected = options.find((item) => item.id === basis);
-  const standard = selected?.value ?? recipe.portions;
-  const unit =
-    selected?.unit ||
-    (basis === "" ? (recipe.recipeVersionId ? "yield units" : "portions") : "units");
-  const value = Number(target);
-  const factor = value / standard;
-  const valid = target.trim() !== "" && value > 0 && standard > 0 && Number.isFinite(factor);
+  const [basis, setBasis] = useState<Basis>(finished ? "finished" : "portions");
+  const [unit, setUnit] = useState<MassUnit>("kg");
+  const [target, setTarget] = useState(
+    finished ? formatMass(finished.grams, "kg") : String(recipe.portions),
+  );
+  const selected = basis.startsWith("ingredient:")
+    ? options.find((item) => item.id === basis.slice("ingredient:".length))
+    : undefined;
+  const standard = basis === "finished"
+    ? (finished?.grams ?? 0)
+    : selected?.value ?? recipe.portions;
+  const targetNumber = Number(target);
+  const converted = basis === "finished"
+    ? targetNumber * (unit === "kg" ? 1000 : 1)
+    : selected ? convertedIngredientTarget(targetNumber, selected.unit, selected.unit) : targetNumber;
+  const factor = converted === null ? NaN : converted / standard;
+  const valid = target.trim() !== "" && Number.isFinite(factor) && factor > 0 && standard > 0;
+  const standardLabel = basis === "finished" && finished
+    ? `${formatMass(finished.grams, unit)} ${unit}`
+    : selected ? selected.quantity : `${recipe.portions} portions`;
+  const unitLabel = basis === "finished" ? unit : selected?.unit || "portions";
+  const reviewCount = valid
+    ? recipe.ingredients.filter((item) => scaleQuantity(item.quantity, factor) === null).length
+    : 0;
+
+  function chooseBasis(next: Basis) {
+    setBasis(next);
+    if (next === "finished" && finished) {
+      setUnit("kg");
+      setTarget(formatMass(finished.grams, "kg"));
+    } else if (next === "portions") {
+      setTarget(String(recipe.portions));
+    } else {
+      setTarget(String(options.find((item) => item.id === next.slice("ingredient:".length))?.value ?? ""));
+    }
+  }
+
+  function changeUnit(next: MassUnit) {
+    if (basis === "finished" && target.trim() !== "" && Number.isFinite(targetNumber)) {
+      setTarget(formatMass(targetNumber * (unit === "kg" ? 1000 : 1), next));
+    }
+    setUnit(next);
+  }
 
   return (
     <>
       <section className="production-panel" aria-labelledby="production-heading">
-        <h2 id="production-heading">Production quantity</h2>
+        <div className="batch-heading">
+          <div>
+            <h2 id="production-heading">Batch calculator</h2>
+            <p>Enter how much you want to prepare.</p>
+          </div>
+          <span className="batch-badge">Live calculation</span>
+        </div>
+
         <div className="field">
-          <label htmlFor="production-basis">Scale using</label>
+          <label htmlFor="production-basis">Calculate by</label>
           <select
             id="production-basis"
             value={basis}
-            onChange={(event) => {
-              const next = event.target.value;
-              setBasis(next);
-              setTarget(String(options.find((item) => item.id === next)?.value ?? recipe.portions));
-            }}
+            onChange={(event) => chooseBasis(event.target.value as Basis)}
           >
-            <option value="">Recipe yield</option>
+            {finished && <option value="finished">Finished batch weight</option>}
+            <option value="portions">Number of portions</option>
             {options.map((item) => (
-              <option key={item.id} value={item.id}>
+              <option key={item.id} value={`ingredient:${item.id}`}>
                 {item.name} ({item.quantity})
               </option>
             ))}
           </select>
         </div>
-        <div className="field">
-          <label htmlFor="production-target">Required quantity ({unit})</label>
-          <input
-            id="production-target"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="any"
-            value={target}
-            aria-invalid={!valid}
-            aria-describedby="production-help"
-            onChange={(event) => setTarget(event.target.value)}
-          />
+        <div className="batch-standard">
+          <span>Standard recipe</span>
+          <strong>{standardLabel}</strong>
         </div>
-        <p id="production-help">
-          {valid
-            ? `Standard: ${standard} ${unit}. Showing ${Number(factor.toPrecision(4))}× the standard recipe. Stored quantities stay unchanged.`
-            : "Enter a quantity greater than zero to calculate ingredients."}
-        </p>
-        <button type="button" className="back-button" onClick={() => setTarget(String(standard))}>
+        {basis === "finished" && finished?.source === "estimated" && (
+          <p className="batch-caution">
+            Estimated from {recipe.portions} × {recipe.portionSize} portions. Confirm actual cooked yield
+            before relying on finished-weight quantities.
+          </p>
+        )}
+        <div className="field">
+          <label htmlFor="production-target">Quantity to prepare</label>
+          <div className="batch-target-row">
+            <input
+              id="production-target"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={target}
+              aria-invalid={!valid}
+              aria-describedby="production-help"
+              onChange={(event) => setTarget(event.target.value)}
+            />
+            {basis === "finished" ? (
+              <select
+                aria-label="Batch weight unit"
+                value={unit}
+                onChange={(event) => changeUnit(event.target.value as MassUnit)}
+              >
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+              </select>
+            ) : <span className="batch-unit">{unitLabel}</span>}
+          </div>
+        </div>
+        <div id="production-help" className="batch-result" aria-live="polite">
+          {valid ? (
+            <>
+              <span>Required batch</span>
+              <strong>{targetNumber} {unitLabel}</strong>
+              <small>{Number(factor.toPrecision(5))}× standard recipe · ingredients updated below</small>
+            </>
+          ) : <span>Enter a quantity greater than zero.</span>}
+        </div>
+        {reviewCount > 0 && <p className="batch-caution">
+          {reviewCount} ingredient {reviewCount === 1 ? "amount needs" : "amounts need"} chef review.
+          Ambiguous amounts are never calculated.
+        </p>}
+        <button type="button" className="back-button" onClick={() => setTarget(
+          basis === "finished" && finished ? formatMass(finished.grams, unit)
+            : basis === "portions" ? String(recipe.portions) : String(selected?.value ?? ""),
+        )}>
           Reset to standard
         </button>
       </section>
-      <div className="tab-panel" aria-label="Calculated ingredients" aria-live="polite">
+
+      <section className="tab-panel" aria-label="Calculated ingredients" aria-live="polite">
+        <h3 className="batch-ingredients-title">Ingredients for this batch</h3>
         {recipe.ingredients.map((ingredient, index) => {
           const scaled = valid ? scaleQuantity(ingredient.quantity, factor) : null;
           return (
@@ -76,11 +158,11 @@ export function ProductionScaler({ recipe }: { recipe: Recipe }) {
                   <small className="quantity-review">Confirm quantity with chef</small>
                 )}
               </span>
-              <strong>{valid ? (scaled ?? ingredient.quantity) : "—"}</strong>
+              <strong>{valid ? scaled ?? ingredient.quantity : "—"}</strong>
             </div>
           );
         })}
-      </div>
+      </section>
     </>
   );
 }

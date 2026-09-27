@@ -1,15 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { numericQuantity, scaleQuantity } from "./recipe-scaling.ts";
+import {
+  numericQuantity, scaleQuantity, finishedBatchYield, massToGrams,
+  formatMass, convertedIngredientTarget,
+} from "./recipe-scaling.ts";
 
 test("4 kg rice to 2 kg scales all ingredient units proportionally", () => {
   const standard = [{ quantity: "4 kg" }, { quantity: "500 g" }, { quantity: "200 ml" }];
   const original = structuredClone(standard);
   const factor = 2 / numericQuantity(standard[0].quantity).value;
-  assert.deepEqual(
-    standard.map((item) => scaleQuantity(item.quantity, factor)),
-    ["2 kg", "250 g", "100 ml"],
-  );
+  assert.deepEqual(standard.map((item) => scaleQuantity(item.quantity, factor)), ["2 kg", "250 g", "100 ml"]);
   assert.deepEqual(standard, original);
 });
 
@@ -28,4 +28,28 @@ test("does not guess ranges, mixed quantities or qualitative amounts", () => {
 
 test("rejects zero, negative and non-finite production amounts", () => {
   for (const factor of [0, -1, NaN, Infinity]) assert.equal(scaleQuantity("4 kg", factor), null);
+});
+
+test("explicit finished weight scales 2kg batch to 3.5kg with factor 1.75", () => {
+  const yieldData = finishedBatchYield({ finishedYield: "2 kg", portions: 10, portionSize: "340 g" });
+  assert.deepEqual(yieldData, { grams: 2000, source: "approved" });
+  const factor = massToGrams(3.5, "kg") / yieldData.grams;
+  assert.equal(factor, 1.75);
+  assert.deepEqual(["2 kg", "1.5 kg", "400 g", "200 ml"].map(q => scaleQuantity(q, factor)),
+    ["3.5 kg", "2.625 kg", "700 g", "350 ml"]);
+});
+
+test("only infer a finished weight from numeric portion mass and flag as estimated", () => {
+  assert.deepEqual(finishedBatchYield({ portions: 10, portionSize: "340 g" }), { grams: 3400, source: "estimated" });
+  assert.equal(finishedBatchYield({ portions: 10, portionSize: "1 plate" }), null);
+  assert.equal(finishedBatchYield({ portions: 10, portionSize: "to taste" }), null);
+  assert.equal(finishedBatchYield({ portions: 10, portionSize: "1 piece" }), null);
+});
+
+test("kg and g convert exactly while unrelated units cannot masquerade as mass", () => {
+  assert.equal(formatMass(3400, "kg"), "3.4");
+  assert.equal(formatMass(3400, "g"), "3400");
+  assert.equal(convertedIngredientTarget(3500, "g", "kg"), 3.5);
+  assert.equal(convertedIngredientTarget(2, "kg", "ml"), null);
+  assert.equal(massToGrams(-1, "kg"), null);
 });
