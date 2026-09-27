@@ -34,6 +34,17 @@ export function KitchenProductionMode({
     initialDraft?.deadline != null && initialDraft.deadline > Date.now() ? initialDraft.deadline : null);
   const [timerDone, setTimerDone] = useState(() => Boolean(initialDraft?.deadline && initialDraft.deadline <= Date.now()));
   const [saveFailed, setSaveFailed] = useState(false);
+  const [conflict, setConflict] = useState(false);
+
+  // A kitchen session opened in two browser tabs must not silently overwrite itself.
+  useEffect(() => {
+    if (!draftKey) return;
+    const detectOtherTab = (event: StorageEvent) => {
+      if (event.storageArea === window.localStorage && event.key === draftKey) setConflict(true);
+    };
+    window.addEventListener("storage", detectOtherTab);
+    return () => window.removeEventListener("storage", detectOtherTab);
+  }, [draftKey]);
 
   // Clock deadline, not interval counters: switching tabs does not make the timer drift.
   useEffect(() => {
@@ -52,7 +63,7 @@ export function KitchenProductionMode({
   // Checkpoints are scoped to authenticated tenant/user/recipe and invalidated if
   // recipe ingredients, directions or version change. Not an official batch log.
   useEffect(() => {
-    if (!draftKey) return;
+    if (!draftKey || conflict) return;
     if (phase === "complete") { clearKitchenDraft(draftKey); return; }
     const draft: KitchenDraft = {
       schema: 1, recipeId: recipe.id, recipeVersion: recipe.recipeVersionId ?? "local",
@@ -61,7 +72,7 @@ export function KitchenProductionMode({
     };
     setSaveFailed(!saveKitchenDraft(draftKey, draft));
   }, [draftKey, recipe.id, recipe.recipeVersionId, fingerprint, basis, target, unit,
-    checked, reviewed, phase, completedSteps, stepIndex, secondsLeft, deadline]);
+    checked, reviewed, phase, completedSteps, stepIndex, secondsLeft, deadline, conflict]);
 
   const ambiguous = recipe.ingredients.filter((item) => scaleQuantity(item.quantity, factor) === null);
   const ready = recipe.ingredients.length > 0 && checked.length === recipe.ingredients.length &&
@@ -103,6 +114,16 @@ export function KitchenProductionMode({
     setStepIndex(0);
     setPhase("prep");
     if (draftKey) clearKitchenDraft(draftKey);
+  }
+
+  if (conflict) {
+    return <section className="kitchen-mode kitchen-conflict" role="alert">
+      <h2>Checklist opened elsewhere</h2>
+      <p>Another tab updated or cleared this saved checklist. Editing here has stopped to protect your progress.</p>
+      <button type="button" className="primary-button kitchen-main-action" onClick={onExit}>
+        Return to batch calculator
+      </button>
+    </section>;
   }
 
   return (
