@@ -311,6 +311,7 @@ export default function App() {
           recipe={selectedRecipe}
           onBack={() => setScreen("recipes")}
           onEdit={startEditRecipe}
+          sessionScope={workspace?.userId ? { tenantId: workspace.id, userId: workspace.userId } : undefined}
         />
       )}
 
