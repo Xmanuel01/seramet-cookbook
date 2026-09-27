@@ -59,7 +59,7 @@ export function KitchenProductionMode({
       fingerprint, basis, target, unit, checked, verified: reviewed, phase,
       completedSteps, stepIndex, secondsLeft, deadline, savedAt: Date.now(),
     };
-    if (!saveKitchenDraft(draftKey, draft)) setSaveFailed(true);
+    setSaveFailed(!saveKitchenDraft(draftKey, draft));
   }, [draftKey, recipe.id, recipe.recipeVersionId, fingerprint, basis, target, unit,
     checked, reviewed, phase, completedSteps, stepIndex, secondsLeft, deadline]);
 
@@ -117,7 +117,7 @@ export function KitchenProductionMode({
         <span className="eyebrow">Guided cooking · Not an official production record</span>
         <h2>{recipe.name}</h2>
         <p>{batchLabel}</p>
-        {draftKey && <small className="kitchen-draft-note">Progress saved on this browser for up to 24 hours.</small>}
+        {draftKey && <small className="kitchen-draft-note">Progress saved on this browser until completed or inactive for 24 hours.</small>}
         {saveFailed && <p className="batch-caution" role="alert">Your browser could not save progress. Keep this page open until you finish.</p>}
       </div>
 
