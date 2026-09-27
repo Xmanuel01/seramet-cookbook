@@ -10,10 +10,12 @@ export function RecipeDetailScreen({
   recipe,
   onBack,
   onEdit,
+  sessionScope,
 }: {
   recipe: Recipe;
   onBack: () => void;
   onEdit: () => void;
+  sessionScope?: { tenantId: string; userId: string };
 }) {
   const [tab, setTab] = useState<DetailTab>("ingredients");
 
@@ -78,7 +80,7 @@ export function RecipeDetailScreen({
           </div>
 
           <div hidden={tab !== "ingredients"}>
-            <ProductionScaler recipe={recipe} />
+            <ProductionScaler key={`${recipe.id}:${recipe.recipeVersionId ?? 'local'}:${recipe.contentRevision ?? 0}`} recipe={recipe} sessionScope={sessionScope} />
           </div>
 
           {tab === "method" && (
