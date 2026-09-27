@@ -1,45 +1,49 @@
-import { useState, type FormEvent } from "react"
-import { BookOpenText, CheckCircle2, LoaderCircle, LockKeyhole } from "lucide-react"
-import { Brand } from "../components/Brand"
-import { supabase } from "../lib/supabase"
+import { useState, type FormEvent } from "react";
+import { BookOpenText, CheckCircle2, LoaderCircle, LockKeyhole } from "lucide-react";
+import { Brand } from "../components/Brand";
+import { supabase } from "../lib/supabase";
 
 export function ResetPasswordScreen({ onComplete }: { onComplete: () => void }) {
-  const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function submit(event: FormEvent) {
-    event.preventDefault()
-    setError("")
+    event.preventDefault();
+    setError("");
 
     if (password.length < 10) {
-      setError("Use at least 10 characters for your Seramet account password.")
-      return
+      setError("Use at least 10 characters for your Seramet account password.");
+      return;
     }
     if (password !== confirmPassword) {
-      setError("The two passwords do not match.")
-      return
+      setError("The two passwords do not match.");
+      return;
     }
 
-    setBusy(true)
+    setBusy(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password })
-      if (updateError) throw updateError
-      window.history.replaceState({}, document.title, window.location.pathname)
-      onComplete()
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) throw updateError;
+      window.history.replaceState({}, document.title, window.location.pathname);
+      onComplete();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to update the password.")
+      setError(reason instanceof Error ? reason.message : "Unable to update the password.");
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <div className="auth-brand"><Brand /></div>
-        <div className="auth-icon"><BookOpenText size={24} /></div>
+        <div className="auth-brand">
+          <Brand />
+        </div>
+        <div className="auth-icon">
+          <BookOpenText size={24} />
+        </div>
         <div className="eyebrow">Secure account recovery</div>
         <h1>Choose a new password</h1>
         <p className="subtitle">
@@ -77,7 +81,11 @@ export function ResetPasswordScreen({ onComplete }: { onComplete: () => void }) 
             </div>
           </label>
 
-          {error && <div className="auth-message error">{error}</div>}
+          {error && (
+            <div className="auth-message error" role="alert">
+              {error}
+            </div>
+          )}
 
           <button type="submit" className="primary-button auth-submit" disabled={busy}>
             {busy && <LoaderCircle className="spin" size={16} />}
@@ -86,5 +94,5 @@ export function ResetPasswordScreen({ onComplete }: { onComplete: () => void }) 
         </form>
       </section>
     </main>
-  )
+  );
 }

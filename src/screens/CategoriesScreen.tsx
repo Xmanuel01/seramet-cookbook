@@ -1,10 +1,18 @@
-import { ChevronRight, LayoutGrid } from "lucide-react"
-import type { Recipe } from "../types"
+import { ChevronRight, LayoutGrid } from "lucide-react";
+import type { Recipe } from "../types";
 
-export function CategoriesScreen({ recipes, categories }: { recipes: Recipe[]; categories: string[] }) {
+export function CategoriesScreen({
+  recipes,
+  categories,
+  onSelect,
+}: {
+  recipes: Recipe[];
+  categories: string[];
+  onSelect: (category: string) => void;
+}) {
   const items = categories
     .filter((item) => item !== "All")
-    .map((name) => ({ name, count: recipes.filter((recipe) => recipe.category === name).length }))
+    .map((name) => ({ name, count: recipes.filter((recipe) => recipe.category === name).length }));
 
   return (
     <main className="content">
@@ -18,8 +26,15 @@ export function CategoriesScreen({ recipes, categories }: { recipes: Recipe[]; c
 
       <section className="list-panel">
         {items.map((item) => (
-          <button type="button" className="list-row" key={item.name}>
-            <span className="list-icon"><LayoutGrid size={16} /></span>
+          <button
+            type="button"
+            className="list-row"
+            key={item.name}
+            onClick={() => onSelect(item.name)}
+          >
+            <span className="list-icon">
+              <LayoutGrid size={16} />
+            </span>
             <span className="list-main">
               <strong>{item.name}</strong>
               <small>{item.count} recipes</small>
@@ -29,5 +44,5 @@ export function CategoriesScreen({ recipes, categories }: { recipes: Recipe[]; c
         ))}
       </section>
     </main>
-  )
+  );
 }

@@ -1,19 +1,21 @@
-import { useState } from "react"
-import { ArrowLeft, Clock3, Pencil, Scale, UsersRound } from "lucide-react"
-import type { Recipe } from "../types"
+import { ProductionScaler } from "../components/ProductionScaler";
+import { useState } from "react";
+import { ArrowLeft, Clock3, Pencil, Scale, UsersRound } from "lucide-react";
+import type { Recipe } from "../types";
+import { recipeImageStyle } from "../lib/recipe-image";
 
-type DetailTab = "ingredients" | "method" | "notes"
+type DetailTab = "ingredients" | "method" | "notes";
 
 export function RecipeDetailScreen({
   recipe,
   onBack,
-  onEdit
+  onEdit,
 }: {
-  recipe: Recipe
-  onBack: () => void
-  onEdit: () => void
+  recipe: Recipe;
+  onBack: () => void;
+  onEdit: () => void;
 }) {
-  const [tab, setTab] = useState<DetailTab>("ingredients")
+  const [tab, setTab] = useState<DetailTab>("ingredients");
 
   return (
     <main className="content detail-content">
@@ -29,7 +31,7 @@ export function RecipeDetailScreen({
       </div>
 
       <section className="detail-card">
-        <div className="detail-hero" style={{ background: recipe.image }}>
+        <div className="detail-hero" style={recipeImageStyle(recipe.image)}>
           <div className="detail-hero-overlay">
             <span>{recipe.category}</span>
             <h1>{recipe.name}</h1>
@@ -61,13 +63,12 @@ export function RecipeDetailScreen({
             </div>
           </div>
 
-          <div className="detail-tabs" role="tablist">
+          <div className="detail-tabs" aria-label="Recipe sections">
             {(["ingredients", "method", "notes"] as DetailTab[]).map((item) => (
               <button
                 type="button"
-                role="tab"
                 key={item}
-                aria-selected={tab === item}
+                aria-pressed={tab === item}
                 className={tab === item ? "active" : ""}
                 onClick={() => setTab(item)}
               >
@@ -76,17 +77,9 @@ export function RecipeDetailScreen({
             ))}
           </div>
 
-          {tab === "ingredients" && (
-            <div className="tab-panel">
-              {recipe.ingredients.map((ingredient, index) => (
-                <div className="ingredient-row" key={ingredient.id}>
-                  <span className="row-index">{index + 1}</span>
-                  <span>{ingredient.name}</span>
-                  <strong>{ingredient.quantity}</strong>
-                </div>
-              ))}
-            </div>
-          )}
+          <div hidden={tab !== "ingredients"}>
+            <ProductionScaler recipe={recipe} />
+          </div>
 
           {tab === "method" && (
             <div className="tab-panel method-list">
@@ -110,5 +103,5 @@ export function RecipeDetailScreen({
         </div>
       </section>
     </main>
-  )
+  );
 }

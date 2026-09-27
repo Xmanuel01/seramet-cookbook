@@ -1,25 +1,25 @@
-import { useMemo, useState } from "react"
-import { ArrowLeft, Check, Plus, Trash2 } from "lucide-react"
-import type { Ingredient, Recipe } from "../types"
+import { useMemo, useState } from "react";
+import { ArrowLeft, Check, Plus, Trash2 } from "lucide-react";
+import type { Ingredient, Recipe } from "../types";
 
-type EditorStep = "basic" | "ingredients" | "method" | "review"
+type EditorStep = "basic" | "ingredients" | "method" | "review";
 
 const editorSteps: Array<{ id: EditorStep; label: string }> = [
   { id: "basic", label: "Basic" },
   { id: "ingredients", label: "Ingredients" },
   { id: "method", label: "Method" },
-  { id: "review", label: "Review" }
-]
+  { id: "review", label: "Review" },
+];
 
 const gradients = [
   "linear-gradient(135deg, #2e756c 0%, #5d9f7a 48%, #d7b56f 100%)",
   "linear-gradient(135deg, #8a5b34 0%, #ca925d 46%, #50734a 100%)",
-  "linear-gradient(135deg, #673127 0%, #a54c34 52%, #cf805c 100%)"
-]
+  "linear-gradient(135deg, #673127 0%, #a54c34 52%, #cf805c 100%)",
+];
 
 function cleanNumber(value: string, fallback: number) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export function RecipeEditorScreen({
@@ -27,54 +27,67 @@ export function RecipeEditorScreen({
   existing,
   coreLocked = false,
   onCancel,
-  onSave
+  onSave,
 }: {
-  categories: string[]
-  existing?: Recipe
-  coreLocked?: boolean
-  onCancel: () => void
-  onSave: (recipe: Recipe) => void
+  categories: string[];
+  existing?: Recipe;
+  coreLocked?: boolean;
+  onCancel: () => void;
+  onSave: (recipe: Recipe) => void;
 }) {
-  const [step, setStep] = useState<EditorStep>("basic")
-  const [name, setName] = useState(existing?.name || "")
-  const [category, setCategory] = useState(existing?.category || categories.find((item) => item !== "All") || "Main Dishes")
-  const [description, setDescription] = useState(existing?.description || "")
-  const [portions, setPortions] = useState(String(existing?.portions || 10))
-  const [portionSize, setPortionSize] = useState(existing?.portionSize || "340 g")
-  const [prepMinutes, setPrepMinutes] = useState(String(existing?.prepMinutes || 20))
-  const [cookMinutes, setCookMinutes] = useState(String(existing?.cookMinutes || 45))
-  const [notes, setNotes] = useState(existing?.notes || "")
+  const [step, setStep] = useState<EditorStep>("basic");
+  const [name, setName] = useState(existing?.name || "");
+  const [category, setCategory] = useState(
+    existing?.category || categories.find((item) => item !== "All") || "Main Dishes",
+  );
+  const [description, setDescription] = useState(existing?.description || "");
+  const [portions, setPortions] = useState(String(existing?.portions || 10));
+  const [portionSize, setPortionSize] = useState(existing?.portionSize || "340 g");
+  const [prepMinutes, setPrepMinutes] = useState(String(existing?.prepMinutes ?? 20));
+  const [cookMinutes, setCookMinutes] = useState(String(existing?.cookMinutes ?? 45));
+  const [notes, setNotes] = useState(existing?.notes || "");
   const [ingredients, setIngredients] = useState<Ingredient[]>(
-    existing?.ingredients || [{ id: "ingredient-1", name: "", quantity: "" }]
-  )
-  const [method, setMethod] = useState<string[]>(existing?.method || [""])
+    existing?.ingredients || [{ id: "ingredient-1", name: "", quantity: "" }],
+  );
+  const [method, setMethod] = useState<string[]>(existing?.method || [""]);
 
-  const currentIndex = editorSteps.findIndex((item) => item.id === step)
+  const currentIndex = editorSteps.findIndex((item) => item.id === step);
   const canContinue = useMemo(() => {
-    if (step === "basic") return name.trim().length > 1 && category.length > 0
-    if (step === "ingredients") return coreLocked || ingredients.some((item) => item.name.trim() && item.quantity.trim())
-    if (step === "method") return method.some((item) => item.trim())
-    return true
-  }, [category, coreLocked, ingredients, method, name, step])
+    if (step === "basic") return name.trim().length > 1 && category.length > 0;
+    if (step === "ingredients")
+      return coreLocked || ingredients.some((item) => item.name.trim() && item.quantity.trim());
+    if (step === "method") return method.some((item) => item.trim());
+    return true;
+  }, [category, coreLocked, ingredients, method, name, step]);
 
   function next() {
-    const nextStep = editorSteps[currentIndex + 1]
-    if (nextStep && canContinue) setStep(nextStep.id)
+    const nextStep = editorSteps[currentIndex + 1];
+    if (nextStep && canContinue) setStep(nextStep.id);
   }
 
   function backStep() {
-    const previous = editorSteps[currentIndex - 1]
-    if (previous) setStep(previous.id)
-    else onCancel()
+    const previous = editorSteps[currentIndex - 1];
+    if (previous) setStep(previous.id);
+    else onCancel();
   }
 
   function updateIngredient(id: string, key: "name" | "quantity", value: string) {
-    setIngredients((items) => items.map((item) => item.id === id ? { ...item, [key]: value } : item))
+    setIngredients((items) =>
+      items.map((item) => (item.id === id ? { ...item, [key]: value } : item)),
+    );
   }
 
   function save() {
-    const id = existing?.id || name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "recipe"
+    const id =
+      existing?.id ||
+      name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") ||
+      "recipe";
     const recipe: Recipe = {
+      ...existing,
       id,
       name: name.trim(),
       category,
@@ -87,9 +100,9 @@ export function RecipeEditorScreen({
       ingredients: ingredients.filter((item) => item.name.trim() && item.quantity.trim()),
       method: method.filter((item) => item.trim()),
       notes: notes.trim(),
-      published: true
-    }
-    onSave(recipe)
+      published: true,
+    };
+    onSave(recipe);
   }
 
   return (
@@ -111,6 +124,8 @@ export function RecipeEditorScreen({
             type="button"
             key={item.id}
             className={step === item.id ? "active" : index < currentIndex ? "complete" : ""}
+            disabled={index > currentIndex}
+            aria-current={step === item.id ? "step" : undefined}
             onClick={() => index <= currentIndex && setStep(item.id)}
           >
             <span>{index < currentIndex ? <Check size={12} /> : index + 1}</span>
@@ -124,36 +139,77 @@ export function RecipeEditorScreen({
           <div className="form-stack">
             <div className="field">
               <label htmlFor="recipe-name">Recipe name</label>
-              <input id="recipe-name" value={name} disabled={coreLocked} onChange={(event) => setName(event.target.value)} placeholder="e.g. Beef Pilau" />
+              <input
+                id="recipe-name"
+                value={name}
+                disabled={coreLocked}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g. Beef Pilau"
+              />
             </div>
             <div className="field">
               <label htmlFor="recipe-category">Category</label>
-              <select id="recipe-category" value={category} disabled={coreLocked} onChange={(event) => setCategory(event.target.value)}>
-                {categories.filter((item) => item !== "All").map((item) => <option key={item}>{item}</option>)}
+              <select
+                id="recipe-category"
+                value={category}
+                disabled={coreLocked}
+                onChange={(event) => setCategory(event.target.value)}
+              >
+                {categories
+                  .filter((item) => item !== "All")
+                  .map((item) => (
+                    <option key={item}>{item}</option>
+                  ))}
               </select>
             </div>
             <div className="field">
               <label htmlFor="recipe-description">Short description</label>
-              <textarea id="recipe-description" value={description} disabled={coreLocked} onChange={(event) => setDescription(event.target.value)} placeholder="What should kitchen staff know at a glance?" />
+              <textarea
+                id="recipe-description"
+                value={description}
+                disabled={coreLocked}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="What should kitchen staff know at a glance?"
+              />
             </div>
             <div className="form-row">
               <div className="field">
                 <label htmlFor="recipe-portions">Yield</label>
-                <input id="recipe-portions" inputMode="numeric" value={portions} disabled={coreLocked} onChange={(event) => setPortions(event.target.value)} />
+                <input
+                  id="recipe-portions"
+                  inputMode="numeric"
+                  value={portions}
+                  disabled={coreLocked}
+                  onChange={(event) => setPortions(event.target.value)}
+                />
               </div>
               <div className="field">
                 <label htmlFor="recipe-portion-size">Portion size</label>
-                <input id="recipe-portion-size" value={portionSize} onChange={(event) => setPortionSize(event.target.value)} />
+                <input
+                  id="recipe-portion-size"
+                  value={portionSize}
+                  onChange={(event) => setPortionSize(event.target.value)}
+                />
               </div>
             </div>
             <div className="form-row">
               <div className="field">
                 <label htmlFor="recipe-prep">Prep minutes</label>
-                <input id="recipe-prep" inputMode="numeric" value={prepMinutes} onChange={(event) => setPrepMinutes(event.target.value)} />
+                <input
+                  id="recipe-prep"
+                  inputMode="numeric"
+                  value={prepMinutes}
+                  onChange={(event) => setPrepMinutes(event.target.value)}
+                />
               </div>
               <div className="field">
                 <label htmlFor="recipe-cook">Cook minutes</label>
-                <input id="recipe-cook" inputMode="numeric" value={cookMinutes} onChange={(event) => setCookMinutes(event.target.value)} />
+                <input
+                  id="recipe-cook"
+                  inputMode="numeric"
+                  value={cookMinutes}
+                  onChange={(event) => setCookMinutes(event.target.value)}
+                />
               </div>
             </div>
           </div>
@@ -170,7 +226,12 @@ export function RecipeEditorScreen({
                 <button
                   type="button"
                   className="secondary-button compact"
-                  onClick={() => setIngredients((items) => [...items, { id: "ingredient-" + Date.now(), name: "", quantity: "" }])}
+                  onClick={() =>
+                    setIngredients((items) => [
+                      ...items,
+                      { id: "ingredient-" + Date.now(), name: "", quantity: "" },
+                    ])
+                  }
                 >
                   <Plus size={15} />
                   Add
@@ -180,11 +241,15 @@ export function RecipeEditorScreen({
             {coreLocked && (
               <div className="chef-note" style={{ marginBottom: 12 }}>
                 <span>Seramet controlled</span>
-                <p>Ingredient quantities, units, costing and yield are managed in Seramet Cost Control. The cookbook reads the active recipe version so kitchen instructions cannot silently change food cost.</p>
+                <p>
+                  Ingredient quantities, units, costing and yield are managed in Seramet Cost
+                  Control. The cookbook reads the active recipe version so kitchen instructions
+                  cannot silently change food cost.
+                </p>
               </div>
             )}
             <div className="editable-list">
-              {ingredients.map((ingredient, index) => (
+              {ingredients.map((ingredient, index) =>
                 coreLocked ? (
                   <div className="ingredient-row" key={ingredient.id}>
                     <span className="row-index">{index + 1}</span>
@@ -194,14 +259,35 @@ export function RecipeEditorScreen({
                 ) : (
                   <div className="editable-row" key={ingredient.id}>
                     <span className="row-index">{index + 1}</span>
-                    <input value={ingredient.name} onChange={(event) => updateIngredient(ingredient.id, "name", event.target.value)} placeholder="Ingredient" />
-                    <input value={ingredient.quantity} onChange={(event) => updateIngredient(ingredient.id, "quantity", event.target.value)} placeholder="Qty / unit" />
-                    <button type="button" className="icon-danger" onClick={() => setIngredients((items) => items.filter((item) => item.id !== ingredient.id))} aria-label="Remove ingredient">
+                    <input
+                      aria-label={`Ingredient ${index + 1} name`}
+                      value={ingredient.name}
+                      onChange={(event) =>
+                        updateIngredient(ingredient.id, "name", event.target.value)
+                      }
+                      placeholder="Ingredient"
+                    />
+                    <input
+                      aria-label={`Ingredient ${index + 1} quantity and unit`}
+                      value={ingredient.quantity}
+                      onChange={(event) =>
+                        updateIngredient(ingredient.id, "quantity", event.target.value)
+                      }
+                      placeholder="Qty / unit"
+                    />
+                    <button
+                      type="button"
+                      className="icon-danger"
+                      onClick={() =>
+                        setIngredients((items) => items.filter((item) => item.id !== ingredient.id))
+                      }
+                      aria-label="Remove ingredient"
+                    >
                       <Trash2 size={15} />
                     </button>
                   </div>
-                )
-              ))}
+                ),
+              )}
             </div>
           </div>
         )}
@@ -213,7 +299,11 @@ export function RecipeEditorScreen({
                 <h2>Method</h2>
                 <p>Keep each instruction short and easy to follow during service.</p>
               </div>
-              <button type="button" className="secondary-button compact" onClick={() => setMethod((items) => [...items, ""])}>
+              <button
+                type="button"
+                className="secondary-button compact"
+                onClick={() => setMethod((items) => [...items, ""])}
+              >
                 <Plus size={15} />
                 Step
               </button>
@@ -223,11 +313,25 @@ export function RecipeEditorScreen({
                 <div className="method-edit-row" key={String(index)}>
                   <span>{index + 1}</span>
                   <textarea
+                    aria-label={`Method step ${index + 1}`}
                     value={item}
-                    onChange={(event) => setMethod((items) => items.map((value, itemIndex) => itemIndex === index ? event.target.value : value))}
+                    onChange={(event) =>
+                      setMethod((items) =>
+                        items.map((value, itemIndex) =>
+                          itemIndex === index ? event.target.value : value,
+                        ),
+                      )
+                    }
                     placeholder="Describe this step"
                   />
-                  <button type="button" className="icon-danger" onClick={() => setMethod((items) => items.filter((_, itemIndex) => itemIndex !== index))} aria-label="Remove method step">
+                  <button
+                    type="button"
+                    className="icon-danger"
+                    onClick={() =>
+                      setMethod((items) => items.filter((_, itemIndex) => itemIndex !== index))
+                    }
+                    aria-label="Remove method step"
+                  >
                     <Trash2 size={15} />
                   </button>
                 </div>
@@ -235,7 +339,12 @@ export function RecipeEditorScreen({
             </div>
             <div className="field top-gap">
               <label htmlFor="recipe-notes">Kitchen notes</label>
-              <textarea id="recipe-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional consistency or service notes" />
+              <textarea
+                id="recipe-notes"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Optional consistency or service notes"
+              />
             </div>
           </div>
         )}
@@ -248,14 +357,30 @@ export function RecipeEditorScreen({
               <p>{description || "No description added."}</p>
             </div>
             <div className="review-grid">
-              <div><span>Yield</span><strong>{portions} portions</strong></div>
-              <div><span>Portion</span><strong>{portionSize}</strong></div>
-              <div><span>Ingredients</span><strong>{ingredients.filter((item) => item.name.trim()).length}</strong></div>
-              <div><span>Method steps</span><strong>{method.filter((item) => item.trim()).length}</strong></div>
+              <div>
+                <span>Yield</span>
+                <strong>{portions} portions</strong>
+              </div>
+              <div>
+                <span>Portion</span>
+                <strong>{portionSize}</strong>
+              </div>
+              <div>
+                <span>Ingredients</span>
+                <strong>{ingredients.filter((item) => item.name.trim()).length}</strong>
+              </div>
+              <div>
+                <span>Method steps</span>
+                <strong>{method.filter((item) => item.trim()).length}</strong>
+              </div>
             </div>
             <div className="chef-note">
               <span>Publishing</span>
-              <p>{coreLocked ? "Kitchen-method changes are stored as append-only revisions linked to the active Seramet recipe version." : "This local recipe is saved on this device."}</p>
+              <p>
+                {coreLocked
+                  ? "Kitchen-method changes are stored as append-only revisions linked to the active Seramet recipe version."
+                  : "This local recipe is saved on this device."}
+              </p>
             </div>
           </div>
         )}
@@ -277,5 +402,5 @@ export function RecipeEditorScreen({
         </div>
       </section>
     </main>
-  )
+  );
 }
