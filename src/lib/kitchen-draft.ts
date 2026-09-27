@@ -85,8 +85,9 @@ export function validateKitchenDraft(
       d.completedSteps.length > expected.stepCount ||
       d.completedSteps.some((index: unknown) => !Number.isInteger(index) || Number(index) < 0 || Number(index) >= expected.stepCount) ||
       new Set(d.completedSteps).size !== d.completedSteps.length) return null;
+    const verified = d.verified as string[];
     if (d.phase === "cook" && (d.checked.length !== ids.size ||
-      !expected.ambiguousIds.every((id) => d.verified.includes(id)))) return null;
+      !expected.ambiguousIds.every((id) => verified.includes(id)))) return null;
     if (d.phase === "cook" && d.completedSteps.length && !d.completedSteps.includes(0)) return null;
     return d as KitchenDraft;
   } catch {
